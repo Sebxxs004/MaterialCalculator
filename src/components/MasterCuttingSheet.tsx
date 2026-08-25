@@ -3,7 +3,7 @@ import type { Espacio, PVCConfig, ResultadoConsolidado } from '../types/material
 import { obtenerVerticesDeEspacio } from '../helpers/pvcOptimizerEngine';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { FileDown, Scissors, Loader } from 'lucide-react';
+import { FileDown, Scissors, Loader, X, Info } from 'lucide-react';
 
 interface MasterCuttingSheetProps {
   resultadoConsolidado: ResultadoConsolidado;
@@ -87,13 +87,11 @@ const RoomStaticCanvas: React.FC<{
     cortesEspacio.forEach((corte) => {
       if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
 
-      const esInicioDeLamina = corte.isFirstInLamina;
-
-      let fillStyle = 'rgba(99, 102, 241, 0.45)'; // Default Soft Blue (New Sheet)
+      let fillStyle = 'rgba(99, 102, 241, 0.45)';
       let strokeStyle = 'rgba(129, 140, 248, 0.8)';
       
-      if (!esInicioDeLamina) {
-        fillStyle = 'rgba(16, 185, 129, 0.45)'; // Reused leftover (Green)
+      if (!corte.isFirstInLamina) {
+        fillStyle = 'rgba(16, 185, 129, 0.45)';
         strokeStyle = 'rgba(52, 211, 153, 0.8)';
       }
 
@@ -175,6 +173,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
   onHoverCorte = () => {},
 }) => {
   const [generandoPDF, setGenerandoPDF] = useState(false);
+  const [selectedSegmentInfo, setSelectedSegmentInfo] = useState<{ title: string; desc: string } | null>(null);
 
   const exportarReportePDF = async () => {
     setGenerandoPDF(true);
@@ -197,34 +196,94 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         useCORS: true,
         backgroundColor: '#070b13',
         onclone: (clonedDoc) => {
-          // Wrap window.getComputedStyle inside the cloned window using a Proxy to intercept and translate oklch/oklab to HEX.
-          // This prevents html2canvas from throwing color parsing errors on computed style properties (borders, backgrounds, SVGs, etc).
-          const clonedWin = clonedDoc.defaultView;
-          if (clonedWin) {
-            const originalGetComputedStyle = clonedWin.getComputedStyle;
-            clonedWin.getComputedStyle = function (el, pseudoElt) {
-              const style = originalGetComputedStyle.call(clonedWin, el, pseudoElt);
-              return new Proxy(style, {
-                get(target, prop) {
-                  const val = target[prop as any];
-                  if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
-                    return val
-                      .replace(/oklch\([^)]*\)/gi, '#475569')
-                      .replace(/oklab\([^)]*\)/gi, '#334155');
-                  }
-                  return val;
-                }
-              });
-            };
-          }
-
-          // Clean oklch and oklab from all style blocks to clean initial declarations
           clonedDoc.querySelectorAll('style').forEach((styleEl) => {
             let cssText = styleEl.textContent || '';
             cssText = cssText.replace(/oklch\([^)]*\)/gi, '#475569');
             cssText = cssText.replace(/oklab\([^)]*\)/gi, '#334155');
             styleEl.textContent = cssText;
           });
+
+          const style = clonedDoc.createElement('style');
+          style.innerHTML = `
+            :root {
+              --color-slate-50: #f8fafc !important;
+              --color-slate-100: #f1f5f9 !important;
+              --color-slate-200: #e2e8f0 !important;
+              --color-slate-300: #cbd5e1 !important;
+              --color-slate-400: #94a3b8 !important;
+              --color-slate-500: #64748b !important;
+              --color-slate-600: #475569 !important;
+              --color-slate-700: #334155 !important;
+              --color-slate-800: #1e293b !important;
+              --color-slate-900: #0f172a !important;
+              --color-slate-950: #020617 !important;
+
+              --color-indigo-50: #e0e7ff !important;
+              --color-indigo-100: #c7d2fe !important;
+              --color-indigo-400: #818cf8 !important;
+              --color-indigo-500: #6366f1 !important;
+              --color-indigo-600: #4f46e5 !important;
+              --color-indigo-700: #4338ca !important;
+
+              --color-violet-50: #f5f3ff !important;
+              --color-violet-100: #ede9fe !important;
+              --color-violet-400: #a78bfa !important;
+              --color-violet-500: #8b5cf6 !important;
+              --color-violet-600: #7c3aed !important;
+
+              --color-emerald-50: #ecfdf5 !important;
+              --color-emerald-100: #d1fae5 !important;
+              --color-emerald-400: #34d399 !important;
+              --color-emerald-500: #10b981 !important;
+              --color-emerald-600: #059669 !important;
+
+              --color-amber-50: #fffbeb !important;
+              --color-amber-100: #fef3c7 !important;
+              --color-amber-400: #fbbf24 !important;
+              --color-amber-50: #f59e0b !important;
+              --color-amber-600: #d97706 !important;
+
+              --color-pink-50: #fdf2f8 !important;
+              --color-pink-100: #fce7f3 !important;
+              --color-pink-400: #f472b6 !important;
+              --color-pink-500: #ec4899 !important;
+              --color-pink-600: #db2777 !important;
+
+              --color-cyan-50: #ecfeff !important;
+              --color-cyan-100: #cffafe !important;
+              --color-cyan-400: #22d3ee !important;
+              --color-cyan-500: #06b6d4 !important;
+              --color-cyan-600: #0891b2 !important;
+
+              --color-rose-50: #fff1f2 !important;
+              --color-rose-100: #ffe4e6 !important;
+              --color-rose-400: #fb7185 !important;
+              --color-rose-50: #f43f5e !important;
+              --color-rose-600: #e11d48 !important;
+            }
+          `;
+          clonedDoc.head.appendChild(style);
+
+          const elements = clonedDoc.getElementsByTagName('*');
+          for (let i = 0; i < elements.length; i++) {
+            const el = elements[i] as HTMLElement;
+            if (el.style) {
+              if (el.style.cssText && (el.style.cssText.includes('oklch') || el.style.cssText.includes('oklab'))) {
+                el.style.cssText = el.style.cssText
+                  .replace(/oklch\([^)]*\)/gi, '#475569')
+                  .replace(/oklab\([^)]*\)/gi, '#334155');
+              }
+              const keys = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
+              keys.forEach((key) => {
+                const val = (el.style as any)[key];
+                if (val && (val.includes('oklch') || val.includes('oklab'))) {
+                  if (key === 'color') (el.style as any)[key] = '#cbd5e1';
+                  else if (key === 'backgroundColor') (el.style as any)[key] = '#1e293b';
+                  else (el.style as any)[key] = '#475569';
+                }
+              });
+            }
+          }
         }
       });
 
@@ -326,6 +385,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                   const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
                   
                   const isHovered = corte.id === hoveredCorteId;
+                  const esReutilizado = corte.id !== lamina.cortes[0].id;
 
                   return (
                     <div
@@ -333,6 +393,16 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                       style={{ width: `${pct}%` }}
                       onMouseEnter={() => onHoverCorte(corte.id)}
                       onMouseLeave={() => onHoverCorte(null)}
+                      onClick={() => {
+                        setSelectedSegmentInfo({
+                          title: `Corte de ${corte.largo.toFixed(2)}m`,
+                          desc: `Este segmento de ${corte.largo.toFixed(2)}m está destinado al espacio "${corte.espacioNombre}" para ser instalado en la Hilera ${corte.hileraIndex + 1}. ${
+                            esReutilizado 
+                              ? 'Se obtiene cortando a partir del retal restante de esta lámina comercial, reduciendo el desperdicio del proyecto.'
+                              : 'Es el primer corte principal realizado a partir de esta lámina nueva.'
+                          }`
+                        });
+                      }}
                       className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[10px] font-bold px-1 transition-all select-none cursor-pointer duration-150 ${
                         isHovered 
                           ? 'scale-y-110 ring-2 ring-amber-400 brightness-125 z-10 font-black shadow-lg shadow-amber-500/20' 
@@ -348,7 +418,16 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                 {totalSobrante > 0 && (
                   <div
                     style={{ width: `${(totalSobrante / pvcConfig.largoComercial) * 100}%` }}
-                    className={`h-full flex flex-col items-center justify-center text-[10px] font-semibold select-none ${
+                    onClick={() => {
+                      const esSobranteGrande = totalSobrante > 0.05;
+                      setSelectedSegmentInfo({
+                        title: esSobranteGrande ? `Retal Sobrante de ${totalSobrante.toFixed(2)}m` : `Desperdicio de ${totalSobrante.toFixed(2)}m`,
+                        desc: esSobranteGrande
+                          ? `Este segmento es el material restante de la lámina después de realizar los cortes requeridos. No se utiliza para ningún corte en el proyecto actual. Al medir ${totalSobrante.toFixed(2)}m, se recomienda guardarlo en tu taller para futuras obras.`
+                          : `Este segmento es el residuo sobrante de la lámina. No se puede utilizar en este proyecto y es demasiado corto (${totalSobrante.toFixed(2)}m) para guardarse. Se considera residuo no utilizable.`
+                      });
+                    }}
+                    className={`h-full flex flex-col items-center justify-center text-[10px] font-semibold select-none cursor-pointer hover:brightness-110 ${
                       totalSobrante > 0.05 
                         ? 'bg-amber-600/35 text-amber-200 border-l border-amber-500/20' 
                         : 'bg-rose-950/30 text-rose-400/80'
@@ -366,11 +445,22 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
               <div className="mt-3.5 pt-3 border-t border-slate-800/60 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {lamina.cortes.map((corte, cIdx) => {
                   const isHovered = corte.id === hoveredCorteId;
+                  const esReutilizado = corte.id !== lamina.cortes[0].id;
                   return (
                     <div
                       key={corte.id}
                       onMouseEnter={() => onHoverCorte(corte.id)}
                       onMouseLeave={() => onHoverCorte(null)}
+                      onClick={() => {
+                        setSelectedSegmentInfo({
+                          title: `Corte de ${corte.largo.toFixed(2)}m`,
+                          desc: `Este segmento de ${corte.largo.toFixed(2)}m está destinado al espacio "${corte.espacioNombre}" para ser instalado en la Hilera ${corte.hileraIndex + 1}. ${
+                            esReutilizado 
+                              ? 'Se obtiene cortando a partir del retal restante de esta lámina comercial, reduciendo el desperdicio del proyecto.'
+                              : 'Es el primer corte principal realizado a partir de esta lámina nueva.'
+                          }`
+                        });
+                      }}
                       className={`flex items-center gap-2 text-xs p-2 rounded-lg border transition-all cursor-pointer duration-150 ${
                         isHovered
                           ? 'border-indigo-500/80 bg-indigo-950/40 ring-1 ring-indigo-500 scale-[1.03] shadow-md shadow-indigo-500/10'
@@ -391,7 +481,15 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                 })}
                 
                 {totalSobrante > 0.05 && (
-                  <div className="flex items-center gap-2 text-xs bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
+                  <div 
+                    onClick={() => {
+                      setSelectedSegmentInfo({
+                        title: `Retal Sobrante de ${totalSobrante.toFixed(2)}m`,
+                        desc: `Este segmento es el material restante de la lámina después de realizar los cortes requeridos. No se utiliza para ningún corte en el proyecto actual. Al medir ${totalSobrante.toFixed(2)}m, se recomienda guardarlo en tu taller para futuras obras.`
+                      });
+                    }}
+                    className="flex items-center gap-2 text-xs bg-amber-500/5 p-2 rounded-lg border border-amber-500/10 hover:border-amber-500/30 cursor-pointer transition-all"
+                  >
                     <span className="w-5 h-5 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-[9px]">
                       R
                     </span>
@@ -406,6 +504,35 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
           );
         })}
       </div>
+
+      {/* DETAILED EXPLAINER MODAL FOR SEGMENT CLICKS */}
+      {selectedSegmentInfo && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="glass-panel w-full max-w-md rounded-2xl p-6 border border-slate-800 shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setSelectedSegmentInfo(null)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-600/10 text-indigo-400 rounded-xl border border-indigo-500/25">
+                <Info className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-semibold text-slate-200">{selectedSegmentInfo.title}</h3>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">{selectedSegmentInfo.desc}</p>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setSelectedSegmentInfo(null)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-500/10 hover:shadow-indigo-500/20 cursor-pointer"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DEDICATED OFFSCREEN MULTI-ROOM REPORT CONTAINER FOR PDF GENERATION */}
       <div
