@@ -50,6 +50,7 @@ export interface ProyectoGuardado {
   espacios: Espacio[];
   pvcConfig: PVCConfig;
   canvasDataURL: string; // Base64 string of the project render
+  threeDDataURL?: string; // Base64 string of the 3D room render
   estadoJSON: string;    // JSON string for raw state backup/restore
 }
 

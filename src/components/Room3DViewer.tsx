@@ -10,6 +10,7 @@ interface Room3DViewerProps {
   espacio: Espacio;
   config: PVCConfig;
   resultadoConsolidado: ResultadoConsolidado | null;
+  onCapture?: (dataUrl: string) => void;
 }
 
 type Acabado = 'blanco' | 'madera' | 'grafito';
@@ -48,7 +49,25 @@ const CameraController = ({ viewMode, roomW, roomL, roomH }: { viewMode: VistaCa
   return null;
 };
 
-export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config: _config, resultadoConsolidado }) => {
+// Helper component that captures the WebGL drawing buffer and sends it as a data URL callback
+const CaptureHelper = ({ onCapture }: { onCapture?: (dataUrl: string) => void }) => {
+  const { gl, scene, camera } = useThree();
+  
+  useEffect(() => {
+    if (onCapture) {
+      const timer = setTimeout(() => {
+        // Explicitly trigger a render cycle to make sure buffer is populated
+        gl.render(scene, camera);
+        onCapture(gl.domElement.toDataURL('image/png'));
+      }, 800); // Allow loading & orbit animation to settle
+      return () => clearTimeout(timer);
+    }
+  }, [gl, scene, camera, onCapture]);
+
+  return null;
+};
+
+export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config: _config, resultadoConsolidado, onCapture }) => {
   const [acabado, setAcabado] = useState<Acabado>('blanco');
   const [vista, setVista] = useState<VistaCamara>('isometrica');
   const [mostrarOmegas, setMostrarOmegas] = useState(true);
@@ -256,9 +275,10 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config: _co
 
       {/* R3F Canvas Container */}
       <div className="relative w-full aspect-square max-w-[340px] md:max-w-none md:h-[300px] rounded-xl overflow-hidden border border-slate-800 bg-[#0b0f19]">
-        <Canvas shadows>
+        <Canvas shadows gl={{ preserveDrawingBuffer: true }}>
           <PerspectiveCamera makeDefault position={[ancho * 1.5, alto * 2.2, largo * 1.5]} fov={50} />
           <CameraController viewMode={vista} roomW={ancho} roomL={largo} roomH={alto} />
+          <CaptureHelper onCapture={onCapture} />
           <OrbitControls 
             enableDamping 
             maxPolarAngle={Math.PI / 1.9}

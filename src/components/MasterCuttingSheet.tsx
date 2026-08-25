@@ -12,6 +12,7 @@ interface MasterCuttingSheetProps {
   nombreProyecto: string;
   hoveredCorteId?: string | null;
   onHoverCorte?: (id: string | null) => void;
+  threeDImageActive?: string | null;
 }
 
 const SEGMENT_COLORS = [
@@ -253,6 +254,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
   nombreProyecto,
   hoveredCorteId = null,
   onHoverCorte = () => {},
+  threeDImageActive = null,
 }) => {
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [selectedSegmentInfo, setSelectedSegmentInfo] = useState<{ title: string; desc: string } | null>(null);
@@ -633,6 +635,18 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                     />
                   </div>
 
+                  {/* Room plan color legend inside the PDF */}
+                  <div className="flex gap-4 justify-center text-[8px] text-slate-400 mt-0.5 pb-1">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-indigo-600 border border-indigo-400"></span>
+                      <span>Lámina Nueva</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 border border-emerald-400"></span>
+                      <span>Retal Reutilizado</span>
+                    </div>
+                  </div>
+
                   <div className="w-full grid grid-cols-2 gap-2 text-[10px] text-slate-400 border-t border-slate-800/40 pt-2">
                     <div>
                       <span>Forma: </span>
@@ -719,6 +733,21 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
             })}
           </div>
         </div>
+        {/* 3. OPTIONAL 3D VIEWPORT PREVIEW INSIDE THE PDF */}
+        {threeDImageActive && (
+          <div className="space-y-4 pt-4 border-t border-slate-800">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 pb-1">
+              Vista 3D del Cielo Raso (Modelo de Instalación)
+            </h2>
+            <div className="flex justify-center bg-slate-900/30 p-4 rounded-xl border border-slate-800/80">
+              <img 
+                src={threeDImageActive} 
+                className="max-w-[420px] max-h-[300px] object-contain rounded-lg shadow-lg border border-slate-800" 
+                alt="Vista 3D del Cielo Raso" 
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -63,6 +63,9 @@ export default function App() {
   // Ref for Room Canvas Visualizer Component
   const visualizerRef = useRef<RoomCanvasVisualizerRef | null>(null);
 
+  // 3D canvas snapshot state for PDF reporting
+  const [threeDImageActive, setThreeDImageActive] = useState<string | null>(null);
+
   // Load history from IndexedDB on startup
   useEffect(() => {
     cargarHistorial();
@@ -96,6 +99,7 @@ export default function App() {
         espacios,
         pvcConfig,
         canvasDataURL,
+        threeDDataURL: threeDImageActive || undefined,
         estadoJSON: JSON.stringify({ espacios, pvcConfig, nombreProyecto, cliente }),
       };
 
@@ -315,6 +319,7 @@ export default function App() {
                       espacio={espacioActivo}
                       config={pvcConfig}
                       resultadoConsolidado={resultadoConsolidado}
+                      onCapture={setThreeDImageActive}
                     />
                   )}
                 </div>
@@ -383,6 +388,7 @@ export default function App() {
               nombreProyecto={nombreProyecto}
               hoveredCorteId={hoveredCorteId}
               onHoverCorte={setHoveredCorteId}
+              threeDImageActive={threeDImageActive}
             />
           </section>
         )}
