@@ -304,8 +304,8 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config: _co
             <meshStandardMaterial color="#1e293b" roughness={0.9} />
           </mesh>
 
-          {/* Grid helper */}
-          <gridHelper args={[Math.max(ancho, largo) * 3, 15, '#334155', '#161d2d']} position={[0, 0, 0]} />
+          {/* Grid helper with exactly 60cm divisions to match Omega spacing */}
+          <gridHelper args={[30, 50, '#475569', '#161d2d']} position={[0, 0, 0]} />
 
           {/* Sectional perimeter walls box segment extrusion */}
           {walls3D.map((wall) => (
