@@ -45,6 +45,7 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
                 { x: e.ancho, y: e.largo },
                 { x: 0, y: e.largo }
               ];
+              return { ...e, tipo, vertices };
             } else if (tipo === 'l_shape') {
               const la = e.largo * 0.6;
               const wa = e.ancho * 0.6;
@@ -56,29 +57,51 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
                 { x: wa, y: e.largo },
                 { x: 0, y: e.largo }
               ];
+              return { 
+                ...e, 
+                tipo, 
+                vertices,
+                largoA: e.largo * 0.6,
+                anchoA: e.ancho * 0.6
+              };
             } else if (tipo === 'polygon') {
               vertices = [
                 { x: 0, y: 0 },
                 { x: e.ancho, y: 0 },
                 { x: e.ancho, y: e.largo },
-                { x: e.ancho * 0.5, y: e.largo + 1 }, // Slanted triangular slant shape
+                { x: e.ancho * 0.5, y: e.largo + 1 },
                 { x: 0, y: e.largo }
               ];
+              return { ...e, tipo, vertices };
+            } else if (tipo === 'mocheta') {
+              vertices = [
+                { x: 0, y: 0 },
+                { x: 2.50, y: 0 },
+                { x: 2.50, y: 2.20 },
+                { x: 1.70, y: 2.20 },
+                { x: 1.70, y: 2.60 },
+                { x: 0, y: 2.60 }
+              ];
+              return {
+                ...e,
+                tipo,
+                vertices,
+                anchoSup: 2.50,
+                largoIzq: 2.60,
+                anchoInf: 1.70,
+                profQuiebre: 0.40,
+                posQuiebre: 'inf_der',
+                ancho: 2.50,
+                largo: 2.60
+              };
             }
-            return { 
-              ...e, 
-              tipo, 
-              vertices,
-              largoA: e.largo * 0.6,
-              anchoA: e.ancho * 0.6
-            };
           }
 
+          // rectangular & L-shape inputs handler
           if (campo === 'largo' || campo === 'ancho' || campo === 'largoA' || campo === 'anchoA') {
             const num = parseFloat(valor);
             const val = isNaN(num) ? 0 : num;
             
-            // Sync vertices if dimensions change for rectangular/L-shape
             const updated = { ...e, [campo]: val };
             const tipo = e.tipo || 'rectangular';
             if (tipo === 'rectangular') {
@@ -105,6 +128,60 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
             return updated;
           }
 
+          // Mocheta inputs handler
+          if (campo === 'anchoSup' || campo === 'largoIzq' || campo === 'anchoInf' || campo === 'profQuiebre' || campo === 'posQuiebre') {
+            const updated = { ...e, [campo]: valor };
+            const wSup = updated.anchoSup !== undefined ? parseFloat(updated.anchoSup as any) : 2.50;
+            const lIzq = updated.largoIzq !== undefined ? parseFloat(updated.largoIzq as any) : 2.60;
+            const wInf = updated.anchoInf !== undefined ? parseFloat(updated.anchoInf as any) : 1.70;
+            const dQ = updated.profQuiebre !== undefined ? parseFloat(updated.profQuiebre as any) : 0.40;
+            const pos = updated.posQuiebre || 'inf_der';
+
+            updated.ancho = Math.max(wSup, wInf);
+            updated.largo = lIzq;
+
+            if (pos === 'inf_der') {
+              updated.vertices = [
+                { x: 0, y: 0 },
+                { x: wSup, y: 0 },
+                { x: wSup, y: lIzq - dQ },
+                { x: wInf, y: lIzq - dQ },
+                { x: wInf, y: lIzq },
+                { x: 0, y: lIzq }
+              ];
+            } else if (pos === 'inf_izq') {
+              const cutoutW = wSup - wInf;
+              updated.vertices = [
+                { x: 0, y: 0 },
+                { x: wSup, y: 0 },
+                { x: wSup, y: lIzq },
+                { x: cutoutW, y: lIzq },
+                { x: cutoutW, y: lIzq - dQ },
+                { x: 0, y: lIzq - dQ }
+              ];
+            } else if (pos === 'sup_der') {
+              updated.vertices = [
+                { x: 0, y: 0 },
+                { x: wInf, y: 0 },
+                { x: wInf, y: dQ },
+                { x: wSup, y: dQ },
+                { x: wSup, y: lIzq },
+                { x: 0, y: lIzq }
+              ];
+            } else { // 'sup_izq'
+              const cutoutW = wSup - wInf;
+              updated.vertices = [
+                { x: cutoutW, y: 0 },
+                { x: wSup, y: 0 },
+                { x: wSup, y: lIzq },
+                { x: 0, y: lIzq },
+                { x: 0, y: dQ },
+                { x: cutoutW, y: dQ }
+              ];
+            }
+            return updated;
+          }
+
           return { ...e, [campo]: valor };
         }
         return e;
@@ -122,7 +199,6 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
             idx === vIdx ? { ...v, [coord]: floatVal } : v
           );
 
-          // Update bounding box width/length based on polygon vertices
           const xs = updatedVertices.map(v => v.x);
           const ys = updatedVertices.map(v => v.y);
           const minX = Math.min(...xs);
@@ -254,6 +330,7 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
                       >
                         <option value="rectangular">Rectangular estándar</option>
                         <option value="l_shape">Habitación en L (6 Lados)</option>
+                        <option value="mocheta">Habitación con Mocheta / Quiebre en L</option>
                         <option value="polygon">Polígono libre / Angulado</option>
                       </select>
                     </div>
@@ -323,7 +400,7 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
                           <input
                             type="number"
                             step="0.01"
-                            value={espacio.anchoA ?? (espacio.ancho * 0.6)}
+                            value={espacio.anchoA ?? ''}
                             onChange={(e) => actualizarEspacio(espacio.id, 'anchoA', e.target.value)}
                             className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
                           />
@@ -333,11 +410,73 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
                           <input
                             type="number"
                             step="0.01"
-                            value={espacio.largoA ?? (espacio.largo * 0.6)}
+                            value={espacio.largoA ?? ''}
                             onChange={(e) => actualizarEspacio(espacio.id, 'largoA', e.target.value)}
                             className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
                           />
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mocheta / Cutout preset inputs */}
+                  {tipo === 'mocheta' && (
+                    <div className="space-y-3.5 bg-slate-950/40 p-3.5 rounded-xl border border-slate-850">
+                      <p className="text-[10px] text-indigo-300 font-semibold uppercase tracking-wider">Configuración del Quiebre / Mocheta:</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">Ancho Total Superior (m)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={espacio.anchoSup ?? 2.50}
+                            onChange={(e) => actualizarEspacio(espacio.id, 'anchoSup', e.target.value)}
+                            className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">Largo Total Izquierdo (m)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={espacio.largoIzq ?? 2.60}
+                            onChange={(e) => actualizarEspacio(espacio.id, 'largoIzq', e.target.value)}
+                            className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">Ancho Tramo Inferior (m)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={espacio.anchoInf ?? 1.70}
+                            onChange={(e) => actualizarEspacio(espacio.id, 'anchoInf', e.target.value)}
+                            className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">Profundidad del Quiebre (m)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={espacio.profQuiebre ?? 0.40}
+                            onChange={(e) => actualizarEspacio(espacio.id, 'profQuiebre', e.target.value)}
+                            className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">Posición del Quiebre</label>
+                        <select
+                          value={espacio.posQuiebre || 'inf_der'}
+                          onChange={(e) => actualizarEspacio(espacio.id, 'posQuiebre', e.target.value)}
+                          className="block w-full rounded-lg border-slate-800 bg-slate-900/40 px-3 py-1.5 text-slate-200 text-xs border"
+                        >
+                          <option value="inf_der">Inferior Derecha</option>
+                          <option value="inf_izq">Inferior Izquierda</option>
+                          <option value="sup_der">Superior Derecha</option>
+                          <option value="sup_izq">Superior Izquierda</option>
+                        </select>
                       </div>
                     </div>
                   )}
@@ -352,7 +491,6 @@ export const EspaciosForm: React.FC<EspaciosFormProps> = ({ espacios, onChange }
                           onClick={() => addVertex(espacio.id)}
                           className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-[10px] text-indigo-300 hover:text-white font-semibold rounded-lg transition-all cursor-pointer"
                         >
-                          <Plus className="w-3 h-3" />
                           Añadir
                         </button>
                       </div>

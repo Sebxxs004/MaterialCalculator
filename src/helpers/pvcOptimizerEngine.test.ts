@@ -64,9 +64,45 @@ function testFalsaEscuadra() {
   console.log('✅ Test de Falsa Escuadra (Diagonal 45°): PASADO.\n');
 }
 
+function testMocheta() {
+  console.log('🧪 Ejecutando Test: Habitación con Mocheta / Quiebre en L...');
+  const espacioMocheta: Espacio = {
+    id: 'mocheta-room',
+    nombre: 'Habitación con Mocheta',
+    largo: 2.60,
+    ancho: 2.50,
+    orientacionSeleccionada: 'ancho', // Force orientation parallel to width
+    tipo: 'mocheta',
+    anchoSup: 2.50,
+    largoIzq: 2.60,
+    anchoInf: 1.70,
+    profQuiebre: 0.40,
+    posQuiebre: 'inf_der',
+  };
+
+  const res = pvcOptimizerEngine.optimizarCortes([espacioMocheta], config);
+
+  console.log(`- Orientación elegida: ${res.desgloseEspacios[0].orientacionElegida}`);
+  console.log(`- Hileras requeridas: ${res.desgloseEspacios[0].hilerasRequeridas}`);
+  
+  const cuts = res.laminasComerciales.flatMap(l => l.cortes);
+  const cuts250 = cuts.filter(c => Math.abs(c.largo - 2.50) < 0.05).length;
+  const cuts170 = cuts.filter(c => Math.abs(c.largo - 1.70) < 0.05).length;
+  
+  console.log(`- Cortes de 2.50m generados: ${cuts250} (Esperado: 9)`);
+  console.log(`- Cortes de 1.70m generados: ${cuts170} (Esperado: 2)`);
+  console.log(`- Láminas de fábrica necesarias: ${res.totalLaminas}`);
+
+  if (cuts250 !== 9 || cuts170 !== 2) {
+    throw new Error(`FALLIDO: Se esperaban 9 cortes de 2.50m y 2 cortes de 1.70m, pero se obtuvieron ${cuts250} y ${cuts170}`);
+  }
+  console.log('✅ Test de Habitación con Mocheta: PASADO.\n');
+}
+
 try {
   testLHabitacion();
   testFalsaEscuadra();
+  testMocheta();
   console.log('🎉 ¡Todos los tests unitarios pasaron con éxito!');
 } catch (error: any) {
   console.error('❌ Error durante la ejecución de los tests unitarios:', error.message);
