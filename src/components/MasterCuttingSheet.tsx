@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { Espacio, PVCConfig, ResultadoConsolidado } from '../types/material';
+import { obtenerVerticesDeEspacio } from '../helpers/pvcOptimizerEngine';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { FileDown, Scissors, Loader } from 'lucide-react';
@@ -21,6 +22,149 @@ const SEGMENT_COLORS = [
   'bg-rose-600 border-rose-500 text-rose-100',
 ];
 
+// Helper Static Canvas component to draw plan for any space
+const RoomStaticCanvas: React.FC<{
+  espacio: Espacio;
+  config: PVCConfig;
+  resultadoConsolidado: ResultadoConsolidado;
+}> = ({ espacio, config, resultadoConsolidado }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const vertices = obtenerVerticesDeEspacio(espacio);
+    const xs = vertices.map(v => v.x);
+    const ys = vertices.map(v => v.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const ancho = maxX - minX;
+    const largo = maxY - minY;
+
+    // Background
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Padding & scale
+    const padding = 35;
+    const scale = Math.min((canvas.width - padding * 2) / (ancho || 1), (canvas.height - padding * 2) / (largo || 1));
+    const w = ancho * scale;
+    const h = largo * scale;
+    const startX = (canvas.width - w) / 2;
+    const startY = (canvas.height - h) / 2;
+
+    // Clip inside room boundaries
+    ctx.save();
+    ctx.beginPath();
+    vertices.forEach((v, idx) => {
+      const px = startX + (v.x - minX) * scale;
+      const py = startY + (v.y - minY) * scale;
+      if (idx === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.clip();
+
+    // Draw cuts
+    const cortesEspacio = resultadoConsolidado.laminasComerciales.flatMap(lamina =>
+      lamina.cortes
+        .filter(c => c.espacioId === espacio.id)
+        .map(c => ({
+          ...c,
+          isShared: new Set(lamina.cortes.map(x => x.espacioId)).size > 1,
+          isFirstInLamina: lamina.cortes[0].id === c.id
+        }))
+    );
+
+    cortesEspacio.forEach((corte) => {
+      if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
+
+      let fillStyle = 'rgba(99, 102, 241, 0.4)';
+      let strokeStyle = 'rgba(129, 140, 248, 0.8)';
+      
+      if (corte.isShared && !corte.isFirstInLamina) {
+        fillStyle = 'rgba(16, 185, 129, 0.45)';
+        strokeStyle = 'rgba(52, 211, 153, 0.8)';
+      } else if (corte.largo < 1.5 && !corte.isShared) {
+        fillStyle = 'rgba(245, 158, 11, 0.45)';
+        strokeStyle = 'rgba(251, 191, 36, 0.8)';
+      }
+
+      ctx.fillStyle = fillStyle;
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = 1;
+
+      corte.poligonoRecortado.forEach((ring) => {
+        if (ring.length < 3) return;
+        ctx.beginPath();
+        ring.forEach((pt, idx) => {
+          const px = startX + (pt[0] - minX) * scale;
+          const py = startY + (pt[1] - minY) * scale;
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      });
+    });
+
+    ctx.restore();
+
+    // Draw borders (walls)
+    ctx.strokeStyle = '#4f46e5';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    vertices.forEach((v, idx) => {
+      const px = startX + (v.x - minX) * scale;
+      const py = startY + (v.y - minY) * scale;
+      if (idx === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.stroke();
+
+    // Draw dimensions
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 9px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    vertices.forEach((v1, idx) => {
+      const v2 = vertices[(idx + 1) % vertices.length];
+      const dist = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
+
+      if (dist < 0.1) return;
+
+      const mx = startX + ((v1.x + v2.x) / 2 - minX) * scale;
+      const my = startY + ((v1.y + v2.y) / 2 - minY) * scale;
+
+      const dx = v2.x - v1.x;
+      const dy = v2.y - v1.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const nx = -dy / (len || 1);
+      const ny = dx / (len || 1);
+
+      ctx.fillText(`${dist.toFixed(2)} m`, mx + nx * 12, my + ny * 12);
+    });
+  }, [espacio, config, resultadoConsolidado]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={240}
+      height={240}
+      className="w-[240px] h-[240px] rounded-xl border border-slate-800 bg-[#0f172a]"
+    />
+  );
+};
+
 export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
   resultadoConsolidado,
   espacios,
@@ -38,23 +182,20 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         format: 'a4',
       });
 
-      const rootElement = document.getElementById('main-content-to-export');
+      // Target the complete multi-room printable container
+      const rootElement = document.getElementById('main-pdf-export-root');
       if (!rootElement) {
         alert('Error: No se pudo localizar el contenedor del reporte.');
         setGenerandoPDF(false);
         return;
       }
 
-      // Hide export buttons momentarily
-      const buttons = document.querySelectorAll('.no-export-pdf');
-      buttons.forEach(b => b.classList.add('hidden'));
-
       const canvas = await html2canvas(rootElement, {
         scale: 2,
         useCORS: true,
-        backgroundColor: '#070b13', // Keep dark slate backdrop style
+        backgroundColor: '#070b13',
         onclone: (clonedDoc) => {
-          // 1. Clean oklch and oklab from all <style> blocks on the page
+          // 1. Clean oklch and oklab from all style blocks on the page
           clonedDoc.querySelectorAll('style').forEach((styleEl) => {
             let cssText = styleEl.textContent || '';
             cssText = cssText.replace(/oklch\([^)]*\)/gi, '#475569');
@@ -62,7 +203,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
             styleEl.textContent = cssText;
           });
 
-          // 2. Inject HEX overrides for all Tailwind CSS variables in the cloned document
+          // 2. Inject HEX overrides for all Tailwind CSS variables
           const style = clonedDoc.createElement('style');
           style.innerHTML = `
             :root {
@@ -118,13 +259,13 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
               --color-rose-50: #fff1f2 !important;
               --color-rose-100: #ffe4e6 !important;
               --color-rose-400: #fb7185 !important;
-              --color-rose-500: #f43f5e !important;
+              --color-rose-50: #f43f5e !important;
               --color-rose-600: #e11d48 !important;
             }
           `;
           clonedDoc.head.appendChild(style);
 
-          // 3. Replace element inline styles containing oklch or oklab
+          // 3. Replace inline styles containing oklch or oklab
           const elements = clonedDoc.getElementsByTagName('*');
           for (let i = 0; i < elements.length; i++) {
             const el = elements[i] as HTMLElement;
@@ -147,9 +288,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
           }
         }
       });
-
-      // Show export buttons again
-      buttons.forEach(b => b.classList.remove('hidden'));
 
       const imgData = canvas.toDataURL('image/png');
       const imgWidth = doc.internal.pageSize.getWidth();
@@ -215,7 +353,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         </button>
       </div>
 
-      {/* Sheet details listing */}
+      {/* Screen layout listing */}
       <div className="space-y-5">
         {resultadoConsolidado.laminasComerciales.map((lamina, index) => {
           const totalUsado = lamina.cortes.reduce((acc, c) => acc + c.largo, 0);
@@ -309,6 +447,170 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
             </div>
           );
         })}
+      </div>
+
+      {/* 
+        DEDICATED OFFSCREEN MULTI-ROOM REPORT CONTAINER FOR PDF GENERATION ONLY.
+        This contains the layout of ALL rooms and plans in the project, plus the cutting guide.
+      */}
+      <div
+        id="main-pdf-export-root"
+        style={{ position: 'absolute', left: '-9999px', top: '0', width: '740px' }}
+        className="bg-[#070b13] p-8 text-slate-100 space-y-8 Outfit"
+      >
+        {/* Document Header Page */}
+        <div className="border-b border-slate-800 pb-5">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">Reporte Técnico de Optimización</h1>
+              <p className="text-xs text-indigo-400 font-semibold uppercase mt-0.5">MaterialCalculator - PVC Ceiling Specialist</p>
+            </div>
+            <div className="text-right text-[10px] text-slate-400">
+              <p>Proyecto: <span className="text-slate-200 font-semibold">{nombreProyecto}</span></p>
+              <p>Fecha: {new Date().toLocaleDateString()}</p>
+            </div>
+          </div>
+
+          {/* Project statistics summary grid */}
+          <div className="grid grid-cols-4 gap-4 mt-6">
+            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+              <span className="block text-[10px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
+              <span className="text-lg font-bold text-slate-200 mt-1 block">{resultadoConsolidado.totalLaminas} piezas</span>
+            </div>
+            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+              <span className="block text-[10px] font-bold text-slate-500 uppercase">Medida Comercial</span>
+              <span className="text-lg font-bold text-slate-200 mt-1 block">{pvcConfig.largoComercial.toFixed(2)}m x {pvcConfig.anchoUtil.toFixed(2)}m</span>
+            </div>
+            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+              <span className="block text-[10px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
+              <span className="text-lg font-bold text-amber-400 mt-1 block">{resultadoConsolidado.desperdicioGlobalPorcentaje}%</span>
+            </div>
+            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+              <span className="block text-[10px] font-bold text-slate-500 uppercase">Presupuesto Estimado</span>
+              <span className="text-lg font-bold text-emerald-400 mt-1 block">
+                ${(resultadoConsolidado.totalLaminas * pvcConfig.precioPorLamina).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 1. PLANS FOR ALL ROOMS IN THE PROJECT */}
+        <div className="space-y-4">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
+            Planos de Distribución y Cortes por Habitación
+          </h2>
+          
+          <div className="grid grid-cols-2 gap-6">
+            {espacios.map((espacio) => {
+              const desglose = resultadoConsolidado.desgloseEspacios.find(d => d.espacioId === espacio.id);
+              const orientacion = desglose?.orientacionElegida || 'largo';
+              return (
+                <div
+                  key={espacio.id}
+                  className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-4 flex flex-col items-center space-y-3"
+                >
+                  <div className="w-full flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-200">{espacio.nombre}</span>
+                    <span className="text-[10px] text-slate-400 capitalize">
+                      Tendido: {orientacion === 'largo' ? 'Paralelo al Largo' : 'Paralelo al Ancho'}
+                    </span>
+                  </div>
+
+                  {/* Draw canvas drawing for this room */}
+                  <div className="flex justify-center w-full">
+                    <RoomStaticCanvas
+                      espacio={espacio}
+                      config={pvcConfig}
+                      resultadoConsolidado={resultadoConsolidado}
+                    />
+                  </div>
+
+                  <div className="w-full grid grid-cols-2 gap-2 text-[10px] text-slate-400 border-t border-slate-800/40 pt-2">
+                    <div>
+                      <span>Forma: </span>
+                      <span className="text-slate-300 font-semibold capitalize">{espacio.tipo || 'rectangular'}</span>
+                    </div>
+                    <div>
+                      <span>Área estimada: </span>
+                      <span className="text-slate-300 font-semibold">{espacio.ancho}m x {espacio.largo}m</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 2. WORKSHOP CUTTING GUIDE FOR ALL SHEET BARS */}
+        <div className="space-y-4 pt-4">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
+            Guía Técnica de Cortes de Fábrica (Taller)
+          </h2>
+
+          <div className="space-y-4">
+            {resultadoConsolidado.laminasComerciales.map((lamina, index) => {
+              const totalUsado = lamina.cortes.reduce((acc, c) => acc + c.largo, 0);
+              const totalSobrante = parseFloat((pvcConfig.largoComercial - totalUsado).toFixed(3));
+
+              return (
+                <div
+                  key={lamina.id}
+                  className="bg-slate-900/30 rounded-xl p-3.5 border border-slate-800/80 space-y-2.5"
+                >
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-bold text-slate-200">Lámina de Fábrica #{index + 1} ({pvcConfig.largoComercial.toFixed(2)}m)</span>
+                    <span>Usado: {totalUsado.toFixed(2)}m / Sobrante: {totalSobrante.toFixed(2)}m</span>
+                  </div>
+
+                  {/* Visual cut bar */}
+                  <div className="h-7 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
+                    {lamina.cortes.map((corte) => {
+                      const pct = (corte.largo / pvcConfig.largoComercial) * 100;
+                      const espacioIdx = espacios.findIndex(e => e.id === corte.espacioId);
+                      const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
+
+                      return (
+                        <div
+                          key={corte.id}
+                          style={{ width: `${pct}%` }}
+                          className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
+                        >
+                          <span className="truncate w-full text-center">{corte.largo}m</span>
+                          <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
+                        </div>
+                      );
+                    })}
+
+                    {totalSobrante > 0 && (
+                      <div
+                        style={{ width: `${(totalSobrante / pvcConfig.largoComercial) * 100}%` }}
+                        className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
+                          totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-200' : 'bg-rose-950/30 text-rose-400/80'
+                        }`}
+                      >
+                        <span>{totalSobrante}m</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Step list for this sheet */}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] text-slate-400 pt-1.5 border-t border-slate-800/20">
+                    {lamina.cortes.map((corte, cIdx) => (
+                      <span key={corte.id}>
+                        <strong className="text-slate-300 font-bold">{cIdx + 1}.</strong> {corte.largo.toFixed(2)}m ({corte.espacioNombre})
+                      </span>
+                    ))}
+                    {totalSobrante > 0.05 && (
+                      <span className="text-amber-400 font-medium">
+                        <strong>R.</strong> Retal de {totalSobrante.toFixed(2)}m (Guardar)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
