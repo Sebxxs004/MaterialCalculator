@@ -331,14 +331,14 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
           }
         });
 
-        const imgData = canvas.toDataURL('image/png');
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
         const imgWidth = doc.internal.pageSize.getWidth();
         const imgHeight = doc.internal.pageSize.getHeight();
 
         if (i > 0) {
           doc.addPage();
         }
-        doc.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+        doc.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight, undefined, 'FAST');
       }
 
       const safeName = nombreProyecto.replace(/[^a-z0-9]/gi, '_').toLowerCase();
