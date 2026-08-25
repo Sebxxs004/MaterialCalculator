@@ -87,15 +87,14 @@ const RoomStaticCanvas: React.FC<{
     cortesEspacio.forEach((corte) => {
       if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
 
-      let fillStyle = 'rgba(99, 102, 241, 0.4)';
+      const esInicioDeLamina = corte.isFirstInLamina;
+
+      let fillStyle = 'rgba(99, 102, 241, 0.45)'; // Default Soft Blue (New Sheet)
       let strokeStyle = 'rgba(129, 140, 248, 0.8)';
       
-      if (corte.isShared && !corte.isFirstInLamina) {
-        fillStyle = 'rgba(16, 185, 129, 0.45)';
+      if (!esInicioDeLamina) {
+        fillStyle = 'rgba(16, 185, 129, 0.45)'; // Reused leftover (Green)
         strokeStyle = 'rgba(52, 211, 153, 0.8)';
-      } else if (corte.largo < 1.5 && !corte.isShared) {
-        fillStyle = 'rgba(245, 158, 11, 0.45)';
-        strokeStyle = 'rgba(251, 191, 36, 0.8)';
       }
 
       ctx.fillStyle = fillStyle;

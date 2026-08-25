@@ -97,17 +97,17 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
         cortesEspacio.forEach((corte) => {
           if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
 
-          // Color coding
-          let fillStyle = 'rgba(99, 102, 241, 0.4)'; // Default Soft Blue (New)
+          // Color coding: Only the first cut of a sheet represents a new sheet purchase (Blue).
+          // Subsequent cuts on the same sheet represent reusing the remaining part of the sheet (Green).
+          const esInicioDeLamina = corte.isFirstInLamina;
+
+          let fillStyle = 'rgba(99, 102, 241, 0.45)'; // Default Soft Blue (New Sheet)
           let strokeStyle = 'rgba(129, 140, 248, 0.8)';
           let lineWidth = 1;
           
-          if (corte.isShared && !corte.isFirstInLamina) {
-            fillStyle = 'rgba(16, 185, 129, 0.45)';
+          if (!esInicioDeLamina) {
+            fillStyle = 'rgba(16, 185, 129, 0.45)'; // Reused leftover (Green)
             strokeStyle = 'rgba(52, 211, 153, 0.8)';
-          } else if (corte.largo < 1.5 && !corte.isShared) {
-            fillStyle = 'rgba(245, 158, 11, 0.45)';
-            strokeStyle = 'rgba(251, 191, 36, 0.8)';
           }
 
           // Shading effect on Hover
