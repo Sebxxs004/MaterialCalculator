@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import type { Espacio, PVCConfig, ResultadoConsolidado } from '../types/material';
+import { obtenerVerticesDeEspacio } from '../helpers/pvcOptimizerEngine';
 import * as THREE from 'three';
 import { Box, Layout } from 'lucide-react';
 
@@ -16,11 +17,10 @@ type VistaCamara = 'isometrica' | 'interior' | 'plano';
 
 const FINISH_MATERIALS: Record<Acabado, { color: string; roughness: number; metalness: number }> = {
   blanco: { color: '#f8fafc', roughness: 0.2, metalness: 0.1 },
-  madera: { color: '#d97706', roughness: 0.8, metalness: 0.0 }, // Wood orange/brown
-  grafito: { color: '#334155', roughness: 0.5, metalness: 0.3 }, // Slate 700 style
+  madera: { color: '#d97706', roughness: 0.8, metalness: 0.0 }, // Warm wood
+  grafito: { color: '#334155', roughness: 0.5, metalness: 0.3 }, // Slate matte
 };
 
-// Helper camera controller to easily change viewpoints inside R3F context
 const CameraController = ({ viewMode, roomW, roomL, roomH }: { viewMode: VistaCamara; roomW: number; roomL: number; roomH: number }) => {
   const { camera } = useThree();
 
@@ -34,16 +34,13 @@ const CameraController = ({ viewMode, roomW, roomL, roomH }: { viewMode: VistaCa
     if (viewMode === 'isometrica') {
       targetPos.set(roomW * 1.5, roomH * 2, roomL * 1.5);
     } else if (viewMode === 'interior') {
-      // Position camera close to floor looking straight up
       targetPos.set(0, 0.4, 0);
       lookAtPos.set(0, roomH, 0);
     } else if (viewMode === 'plano') {
-      // Top-down looking at ceiling
-      targetPos.set(0, roomH * 2.5, 0.01); // Small offset in Z to prevent Gimbal Lock
+      targetPos.set(0, roomH * 2.5, 0.01);
       lookAtPos.set(0, roomH, 0);
     }
 
-    // Smooth transition or instant snap
     camera.position.copy(targetPos);
     camera.lookAt(lookAtPos);
   }, [viewMode, roomW, roomL, roomH, camera]);
@@ -51,24 +48,35 @@ const CameraController = ({ viewMode, roomW, roomL, roomH }: { viewMode: VistaCa
   return null;
 };
 
-export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, resultadoConsolidado }) => {
+export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config: _config, resultadoConsolidado }) => {
   const [acabado, setAcabado] = useState<Acabado>('blanco');
   const [vista, setVista] = useState<VistaCamara>('isometrica');
   const [mostrarOmegas, setMostrarOmegas] = useState(true);
 
-  const { largo, ancho } = espacio;
-  const { anchoUtil } = config;
+  const vertices = obtenerVerticesDeEspacio(espacio);
+  const xs = vertices.map(v => v.x);
+  const ys = vertices.map(v => v.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  const ancho = maxX - minX;
+  const largo = maxY - minY;
   const alto = 2.60; // Standard room height
 
-  // 3D Cut layout data generation
-  const getCutsCoords = () => {
-    if (!resultadoConsolidado) return [];
+  // Floor shape geometry creation
+  const floorShape = new THREE.Shape();
+  vertices.forEach((v, idx) => {
+    const px = v.x - minX - ancho / 2;
+    const pz = v.y - minY - largo / 2;
+    if (idx === 0) floorShape.moveTo(px, pz);
+    else floorShape.lineTo(px, pz);
+  });
 
-    let orientacionEfectiva = espacio.orientacionSeleccionada;
-    if (orientacionEfectiva === 'auto') {
-      const desglose = resultadoConsolidado.desgloseEspacios.find(d => d.espacioId === espacio.id);
-      orientacionEfectiva = desglose?.orientacionElegida || 'largo';
-    }
+  // Slats 3D geometry from clipping polygons
+  const getSlatMeshes = () => {
+    if (!resultadoConsolidado) return [];
 
     const cortesEspacio = resultadoConsolidado.laminasComerciales.flatMap(lamina =>
       lamina.cortes
@@ -80,99 +88,89 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
         }))
     );
 
-    const coords: {
+    const meshes: {
       id: string;
-      x: number;
-      y: number;
-      z: number;
-      w: number;
-      l: number;
-      h: number;
+      shape: THREE.Shape;
       corteType: 'nueva' | 'reutilizada' | 'sobrante';
     }[] = [];
 
-    if (orientacionEfectiva === 'largo') {
-      const hileras = Math.ceil(ancho / anchoUtil);
-      
-      for (let hIdx = 0; hIdx < hileras; hIdx++) {
-        const cortesHilera = cortesEspacio
-          .filter(c => c.hileraIndex === hIdx)
-          .sort((a, b) => b.largo - a.largo);
+    cortesEspacio.forEach((corte) => {
+      if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
 
-        let currentY = -largo / 2;
-        const xCoord = -ancho / 2 + hIdx * anchoUtil + anchoUtil / 2;
-
-        cortesHilera.forEach((corte) => {
-          let type: 'nueva' | 'reutilizada' | 'sobrante' = 'nueva';
-          if (corte.isShared && !corte.isFirstInLamina) {
-            type = 'reutilizada';
-          } else if (corte.largo < 1.5 && !corte.isShared) {
-            type = 'sobrante';
-          }
-
-          coords.push({
-            id: corte.id,
-            x: xCoord,
-            y: currentY + corte.largo / 2,
-            z: alto,
-            w: anchoUtil - 0.005, // Small gap for grooves
-            l: corte.largo - 0.005,
-            h: 0.02, // Thickness
-            corteType: type,
-          });
-
-          currentY += corte.largo;
+      corte.poligonoRecortado.forEach((ring) => {
+        if (ring.length < 3) return;
+        
+        const shape = new THREE.Shape();
+        ring.forEach((pt, idx) => {
+          const px = pt[0] - minX - ancho / 2;
+          const pz = pt[1] - minY - largo / 2;
+          if (idx === 0) shape.moveTo(px, pz);
+          else shape.lineTo(px, pz);
         });
-      }
-    } else {
-      // Parallel to Width
-      const hileras = Math.ceil(largo / anchoUtil);
-      
-      for (let hIdx = 0; hIdx < hileras; hIdx++) {
-        const cortesHilera = cortesEspacio
-          .filter(c => c.hileraIndex === hIdx)
-          .sort((a, b) => b.largo - a.largo);
 
-        let currentX = -ancho / 2;
-        const yCoord = -largo / 2 + hIdx * anchoUtil + anchoUtil / 2;
+        let type: 'nueva' | 'reutilizada' | 'sobrante' = 'nueva';
+        if (corte.isShared && !corte.isFirstInLamina) {
+          type = 'reutilizada';
+        } else if (corte.largo < 1.5 && !corte.isShared) {
+          type = 'sobrante';
+        }
 
-        cortesHilera.forEach((corte) => {
-          let type: 'nueva' | 'reutilizada' | 'sobrante' = 'nueva';
-          if (corte.isShared && !corte.isFirstInLamina) {
-            type = 'reutilizada';
-          } else if (corte.largo < 1.5 && !corte.isShared) {
-            type = 'sobrante';
-          }
-
-          coords.push({
-            id: corte.id,
-            x: currentX + corte.largo / 2,
-            y: yCoord,
-            z: alto,
-            w: corte.largo - 0.005,
-            l: anchoUtil - 0.005,
-            h: 0.02,
-            corteType: type,
-          });
-
-          currentX += corte.largo;
+        meshes.push({
+          id: corte.id + '-' + Math.random(),
+          shape,
+          corteType: type
         });
-      }
-    }
+      });
+    });
 
-    return coords;
+    return meshes;
   };
 
-  const cortes3D = getCutsCoords();
+  const slats3D = getSlatMeshes();
 
-  // Color mapper based on cut source and active finish material
+  // Perimeter wall segments box parameters calculations
+  const getWallSegments = () => {
+    const list: {
+      id: string;
+      px: number;
+      py: number;
+      pz: number;
+      length: number;
+      rotation: number;
+    }[] = [];
+
+    vertices.forEach((v1, idx) => {
+      const v2 = vertices[(idx + 1) % vertices.length];
+      const length = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
+      
+      if (length < 0.01) return;
+
+      const mx = (v1.x + v2.x) / 2 - minX - ancho / 2;
+      const mz = (v1.y + v2.y) / 2 - minY - largo / 2;
+      const angle = Math.atan2(v2.y - v1.y, v2.x - v1.x);
+
+      list.push({
+        id: `wall-${idx}`,
+        px: mx,
+        py: alto / 2,
+        pz: mz,
+        length,
+        rotation: -angle // Match clockwise angle coordinate system rotation direction
+      });
+    });
+
+    return list;
+  };
+
+  const walls3D = getWallSegments();
+
   const getCutColor = (type: 'nueva' | 'reutilizada' | 'sobrante') => {
-    if (type === 'reutilizada') return '#10b981'; // Green tint
-    if (type === 'sobrante') return '#f59e0b'; // Orange tint
+    if (type === 'reutilizada') return '#10b981'; // Green
+    if (type === 'sobrante') return '#f59e0b'; // Orange
     return FINISH_MATERIALS[acabado].color;
   };
 
-  // Generate omega coordinates (spaced every 0.6m)
+  // Generate support omega profiles centered on the bounding box
   const getOmegasCoords = () => {
     let orientacionEfectiva = espacio.orientacionSeleccionada;
     if (orientacionEfectiva === 'auto' && resultadoConsolidado) {
@@ -185,21 +183,21 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
     const step = 0.60;
 
     if (orientacionEfectiva === 'largo') {
-      // Omegas run perpendicular, so parallel to width (along X axis)
+      // Omegas run along X axis
       const numOmegas = Math.floor(largo / step);
       for (let i = 0; i <= numOmegas; i++) {
         const y = -largo / 2 + i * step;
         list.push({
           x: 0,
           y,
-          z: alto + 0.03, // placed above the PVC ceiling
+          z: alto + 0.03,
           w: ancho,
-          l: 0.04, // Omega profile width
-          h: 0.02, // Height
+          l: 0.04,
+          h: 0.02,
         });
       }
     } else {
-      // Omegas run parallel to length (along Y axis)
+      // Omegas run along Y axis
       const numOmegas = Math.floor(ancho / step);
       for (let i = 0; i <= numOmegas; i++) {
         const x = -ancho / 2 + i * step;
@@ -220,7 +218,7 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
 
   return (
     <div className="glass-panel rounded-2xl p-5 shadow-xl flex flex-col items-center w-full relative">
-      {/* 3D Canvas Header Controls overlay */}
+      {/* 3D Canvas Header Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-3 mb-4 z-10">
         <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
           <Box className="w-4 h-4 text-violet-400" />
@@ -259,11 +257,11 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
       {/* R3F Canvas Container */}
       <div className="relative w-full aspect-square max-w-[340px] md:max-w-none md:h-[300px] rounded-xl overflow-hidden border border-slate-800 bg-[#0b0f19]">
         <Canvas shadows>
-          <PerspectiveCamera makeDefault position={[largo * 1.5, alto * 2.2, ancho * 1.5]} fov={50} />
+          <PerspectiveCamera makeDefault position={[ancho * 1.5, alto * 2.2, largo * 1.5]} fov={50} />
           <CameraController viewMode={vista} roomW={ancho} roomL={largo} roomH={alto} />
           <OrbitControls 
             enableDamping 
-            maxPolarAngle={Math.PI / 1.9} // Prevent looking below ground
+            maxPolarAngle={Math.PI / 1.9}
             minDistance={1.5}
             maxDistance={20}
           />
@@ -277,62 +275,35 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
             shadow-mapSize={[1024, 1024]}
           />
           
-          {/* Recessed ceiling downlight spots */}
+          {/* Recessed spots */}
           <pointLight position={[0, alto - 0.2, 0]} intensity={1.2} distance={6} decay={2} castShadow />
-          <spotLight 
-            position={[0, alto - 0.1, 0]} 
-            angle={Math.PI / 3} 
-            penumbra={0.5} 
-            intensity={1.5} 
-            distance={8} 
-            castShadow
-          />
 
-          {/* Floor mesh */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-            <planeGeometry args={[ancho, largo]} />
+          {/* Floor mesh using custom ShapeGeometry */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
+            <shapeGeometry args={[floorShape]} />
             <meshStandardMaterial color="#1e293b" roughness={0.9} />
           </mesh>
 
-          {/* Floor grid helper */}
-          <gridHelper args={[Math.max(ancho, largo) * 2, 10, '#334155', '#1e293b']} position={[0, 0.01, 0]} />
+          {/* Grid helper */}
+          <gridHelper args={[Math.max(ancho, largo) * 3, 15, '#334155', '#161d2d']} position={[0, 0, 0]} />
 
-          {/* Semi-transparent perimeter walls */}
-          {/* North Wall */}
-          <mesh position={[0, alto / 2, -largo / 2]}>
-            <boxGeometry args={[ancho, alto, 0.08]} />
-            <meshStandardMaterial color="#475569" transparent opacity={0.3} />
-          </mesh>
-          {/* South Wall */}
-          <mesh position={[0, alto / 2, largo / 2]}>
-            <boxGeometry args={[ancho, alto, 0.08]} />
-            <meshStandardMaterial color="#475569" transparent opacity={0.3} />
-          </mesh>
-          {/* East Wall */}
-          <mesh position={[ancho / 2, alto / 2, 0]}>
-            <boxGeometry args={[0.08, alto, largo]} />
-            <meshStandardMaterial color="#475569" transparent opacity={0.3} />
-          </mesh>
-          {/* West Wall */}
-          <mesh position={[-ancho / 2, alto / 2, 0]}>
-            <boxGeometry args={[0.08, alto, largo]} />
-            <meshStandardMaterial color="#475569" transparent opacity={0.3} />
-          </mesh>
+          {/* Sectional perimeter walls box segment extrusion */}
+          {walls3D.map((wall) => (
+            <mesh key={wall.id} position={[wall.px, wall.py, wall.pz]} rotation={[0, wall.rotation, 0]}>
+              <boxGeometry args={[wall.length, alto, 0.06]} />
+              <meshStandardMaterial color="#475569" transparent opacity={0.35} />
+            </mesh>
+          ))}
 
-          {/* J Molding Perimeter Crown framing (Z=alto) */}
-          <mesh position={[0, alto - 0.01, 0]}>
-            <boxGeometry args={[ancho, 0.02, largo]} />
-            <meshStandardMaterial color="#0f172a" wireframe />
-          </mesh>
-
-          {/* PVC ceiling slats rendering */}
-          {cortes3D.map((corte) => (
-            <mesh key={corte.id} position={[corte.x, corte.z, corte.y]} castShadow receiveShadow>
-              <boxGeometry args={[corte.w, corte.h, corte.l]} />
+          {/* PVC ceiling slats rendering using custom ShapeGeometry */}
+          {slats3D.map((slat) => (
+            <mesh key={slat.id} rotation={[-Math.PI / 2, 0, 0]} position={[0, alto, 0]} castShadow receiveShadow>
+              <shapeGeometry args={[slat.shape]} />
               <meshStandardMaterial
-                color={getCutColor(corte.corteType)}
+                color={getCutColor(slat.corteType)}
                 roughness={FINISH_MATERIALS[acabado].roughness}
                 metalness={FINISH_MATERIALS[acabado].metalness}
+                side={THREE.DoubleSide}
               />
             </mesh>
           ))}
@@ -347,11 +318,10 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
         </Canvas>
       </div>
 
-      {/* 3D UI controls overlay overlay */}
+      {/* Acabado and toggles UI controls */}
       <div className="mt-4 w-full space-y-3.5 border-t border-slate-800/80 pt-3">
-        {/* Slats Finish materials */}
         <div>
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5 flex items-center gap-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center gap-1.5">
             <Layout className="w-3.5 h-3.5 text-slate-400" />
             Acabado del PVC
           </label>
@@ -372,7 +342,6 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config, res
           </div>
         </div>
 
-        {/* Support omegas visibility toggle */}
         <div className="flex items-center justify-between text-xs pt-1">
           <span className="text-slate-400 font-medium">Estructura Perfiles Omega (Techo)</span>
           <button

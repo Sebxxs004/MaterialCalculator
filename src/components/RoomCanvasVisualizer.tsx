@@ -1,5 +1,6 @@
 import { useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import type { Espacio, PVCConfig, ResultadoConsolidado, Orientacion } from '../types/material';
+import { obtenerVerticesDeEspacio } from '../helpers/pvcOptimizerEngine';
 import { Compass, RotateCw } from 'lucide-react';
 
 interface RoomCanvasVisualizerProps {
@@ -35,15 +36,25 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const { largo, ancho } = espacio;
-      const { anchoUtil } = config;
+      const vertices = obtenerVerticesDeEspacio(espacio);
+      
+      // Calculate Bounding Box of Room vertices
+      const xs = vertices.map(v => v.x);
+      const ys = vertices.map(v => v.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+
+      const ancho = maxX - minX;
+      const largo = maxY - minY;
 
       // 1. Clear background
       ctx.fillStyle = '#0f172a'; // Deep slate
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // 2. Scale & Center calculations
-      const padding = 50;
+      const padding = 60;
       const drawAreaW = canvas.width - padding * 2;
       const drawAreaH = canvas.height - padding * 2;
       const scale = Math.min(drawAreaW / ancho, drawAreaH / largo);
@@ -63,11 +74,17 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
         orientacionEfectiva = 'largo';
       }
 
-      // 3. Draw Room cuts and sheets
+      // 3. Draw Room cuts and sheets (Polygons)
       ctx.save();
-      // Clip inside room boundary
+      // Clip inside room boundaries
       ctx.beginPath();
-      ctx.rect(startX, startY, w, h);
+      vertices.forEach((v, idx) => {
+        const px = startX + (v.x - minX) * scale;
+        const py = startY + (v.y - minY) * scale;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
       ctx.clip();
 
       if (resultadoConsolidado) {
@@ -77,146 +94,93 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
             .filter(c => c.espacioId === espacio.id)
             .map(c => ({
               ...c,
-              laminaId: lamina.id,
               isShared: new Set(lamina.cortes.map(x => x.espacioId)).size > 1,
               isFirstInLamina: lamina.cortes[0].id === c.id
             }))
         );
 
-        if (orientacionEfectiva === 'largo') {
-          const hileras = Math.ceil(ancho / anchoUtil);
-          const panelW = anchoUtil * scale;
+        cortesEspacio.forEach((corte) => {
+          if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
 
-          for (let rowIdx = 0; rowIdx < hileras; rowIdx++) {
-            const x = startX + rowIdx * panelW;
-
-            // Gather and sort cuts for this specific row
-            const cortesHilera = cortesEspacio
-              .filter(c => c.hileraIndex === rowIdx)
-              .sort((a, b) => b.largo - a.largo);
-
-            let currentY = startY;
-            cortesHilera.forEach((corte) => {
-              const cutH = corte.largo * scale;
-
-              // Color coding
-              let fillStyle = 'rgba(99, 102, 241, 0.4)'; // Default Soft Blue (New)
-              let strokeStyle = 'rgba(129, 140, 248, 0.8)';
-              
-              if (corte.isShared && !corte.isFirstInLamina) {
-                // Reused leftover from another space (Green)
-                fillStyle = 'rgba(16, 185, 129, 0.45)';
-                strokeStyle = 'rgba(52, 211, 153, 0.8)';
-              } else if (corte.largo < 1.5 && !corte.isShared) {
-                // Small joint leftover/cutoff (Orange)
-                fillStyle = 'rgba(245, 158, 11, 0.45)';
-                strokeStyle = 'rgba(251, 191, 36, 0.8)';
-              }
-
-              ctx.fillStyle = fillStyle;
-              ctx.strokeStyle = strokeStyle;
-              ctx.lineWidth = 1;
-              ctx.fillRect(x + 1, currentY + 1, panelW - 2, cutH - 2);
-              ctx.strokeRect(x, currentY, panelW, cutH);
-
-              // Draw dashed line for cut connections
-              if (currentY > startY) {
-                ctx.save();
-                ctx.strokeStyle = '#f43f5e'; // Red dash line for connection joints
-                ctx.setLineDash([4, 4]);
-                ctx.beginPath();
-                ctx.moveTo(x, currentY);
-                ctx.lineTo(x + panelW, currentY);
-                ctx.stroke();
-                ctx.restore();
-              }
-
-              currentY += cutH;
-            });
+          // Color coding
+          let fillStyle = 'rgba(99, 102, 241, 0.4)'; // Default Soft Blue (New)
+          let strokeStyle = 'rgba(129, 140, 248, 0.8)';
+          
+          if (corte.isShared && !corte.isFirstInLamina) {
+            // Reused leftover from another space (Green)
+            fillStyle = 'rgba(16, 185, 129, 0.45)';
+            strokeStyle = 'rgba(52, 211, 153, 0.8)';
+          } else if (corte.largo < 1.5 && !corte.isShared) {
+            // Small joint leftover/cutoff (Orange)
+            fillStyle = 'rgba(245, 158, 11, 0.45)';
+            strokeStyle = 'rgba(251, 191, 36, 0.8)';
           }
-        } else {
-          // Parallel to Width
-          const hileras = Math.ceil(largo / anchoUtil);
-          const panelH = anchoUtil * scale;
 
-          for (let rowIdx = 0; rowIdx < hileras; rowIdx++) {
-            const y = startY + rowIdx * panelH;
+          ctx.fillStyle = fillStyle;
+          ctx.strokeStyle = strokeStyle;
+          ctx.lineWidth = 1;
 
-            // Gather and sort cuts for this specific row
-            const cortesHilera = cortesEspacio
-              .filter(c => c.hileraIndex === rowIdx)
-              .sort((a, b) => b.largo - a.largo);
-
-            let currentX = startX;
-            cortesHilera.forEach((corte) => {
-              const cutW = corte.largo * scale;
-
-              // Color coding
-              let fillStyle = 'rgba(99, 102, 241, 0.4)'; // Default Soft Blue (New)
-              let strokeStyle = 'rgba(129, 140, 248, 0.8)';
-              
-              if (corte.isShared && !corte.isFirstInLamina) {
-                // Reused leftover from another space (Green)
-                fillStyle = 'rgba(16, 185, 129, 0.45)';
-                strokeStyle = 'rgba(52, 211, 153, 0.8)';
-              } else if (corte.largo < 1.5 && !corte.isShared) {
-                // Small joint leftover/cutoff (Orange)
-                fillStyle = 'rgba(245, 158, 11, 0.45)';
-                strokeStyle = 'rgba(251, 191, 36, 0.8)';
-              }
-
-              ctx.fillStyle = fillStyle;
-              ctx.strokeStyle = strokeStyle;
-              ctx.lineWidth = 1;
-              ctx.fillRect(currentX + 1, y + 1, cutW - 2, panelH - 2);
-              ctx.strokeRect(currentX, y, cutW, panelH);
-
-              // Draw dashed line for cut connections
-              if (currentX > startX) {
-                ctx.save();
-                ctx.strokeStyle = '#f43f5e'; // Red dash line for connection joints
-                ctx.setLineDash([4, 4]);
-                ctx.beginPath();
-                ctx.moveTo(currentX, y);
-                ctx.lineTo(currentX, y + panelH);
-                ctx.stroke();
-                ctx.restore();
-              }
-
-              currentX += cutW;
+          // Draw the irregular cut polygon
+          corte.poligonoRecortado.forEach((ring) => {
+            if (ring.length < 3) return;
+            ctx.beginPath();
+            ring.forEach((pt, idx) => {
+              const px = startX + (pt[0] - minX) * scale;
+              const py = startY + (pt[1] - minY) * scale;
+              if (idx === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
             });
-          }
-        }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          });
+        });
       }
 
       ctx.restore();
 
-      // 4. Draw outer border of room
+      // 4. Draw outer border of room (Muros)
       ctx.strokeStyle = '#4f46e5';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(startX, startY, w, h);
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      vertices.forEach((v, idx) => {
+        const px = startX + (v.x - minX) * scale;
+        const py = startY + (v.y - minY) * scale;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.stroke();
 
-      // 5. Draw dimensions / annotations (Cotas)
+      // 5. Draw dimensions / annotations (Cotas y Medidas en los Muros)
       ctx.fillStyle = '#94a3b8';
-      ctx.font = '500 12px Outfit, sans-serif';
+      ctx.font = 'bold 10px Outfit, sans-serif';
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
 
-      // Width Label (at bottom center)
-      ctx.fillText(`${ancho.toFixed(2)} m (Ancho)`, canvas.width / 2, startY + h + 24);
+      vertices.forEach((v1, idx) => {
+        const v2 = vertices[(idx + 1) % vertices.length];
+        const dist = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
 
-      // Length Label (at left side rotated)
-      ctx.save();
-      ctx.translate(startX - 24, canvas.height / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText(`${largo.toFixed(2)} m (Largo)`, 0, 0);
-      ctx.restore();
+        if (dist < 0.1) return; // Skip extremely small wall segments
 
-      // Grid/Row width indicator marker
-      ctx.save();
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
-      ctx.setLineDash([2, 2]);
-      ctx.lineWidth = 1;
-      ctx.restore();
+        // Midpoint on canvas
+        const mx = startX + ((v1.x + v2.x) / 2 - minX) * scale;
+        const my = startY + ((v1.y + v2.y) / 2 - minY) * scale;
+
+        // Bending direction normal to place label outside room walls
+        const dx = v2.x - v1.x;
+        const dy = v2.y - v1.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const nx = -dy / len; 
+        const ny = dx / len;
+
+        // Offset text position outside the wall segment
+        const tx = mx + nx * 14;
+        const ty = my + ny * 14;
+
+        ctx.fillText(`${dist.toFixed(2)} m`, tx, ty);
+      });
     };
 
     const toggleOrientacion = () => {
@@ -250,7 +214,7 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
             className="flex items-center gap-1 px-2.5 py-1 bg-slate-900 border border-slate-800 hover:border-slate-700 text-[10px] text-slate-300 font-semibold rounded-lg transition-all cursor-pointer hover:text-slate-100"
             title="Cambiar orientación de corte"
           >
-            <RotateCw className="w-3 h-3 text-indigo-400 animate-spin-slow" />
+            <RotateCw className="w-3 h-3 text-indigo-400" />
             Orientación: {getOrientacionLabel()}
           </button>
         </div>
