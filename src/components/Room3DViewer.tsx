@@ -304,6 +304,8 @@ export const Room3DViewer: React.FC<Room3DViewerProps> = ({ espacio, config: _co
                 roughness={FINISH_MATERIALS[acabado].roughness}
                 metalness={FINISH_MATERIALS[acabado].metalness}
                 side={THREE.DoubleSide}
+                transparent={mostrarOmegas}
+                opacity={mostrarOmegas ? 0.60 : 1.0}
               />
             </mesh>
           ))}

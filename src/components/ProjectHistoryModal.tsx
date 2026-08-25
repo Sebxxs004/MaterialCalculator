@@ -32,6 +32,87 @@ const SEGMENT_COLORS = [
   'bg-rose-600 border-rose-500 text-rose-100',
 ];
 
+// High-fidelity OKLCH to RGB conversion helper
+function oklchToRgb(oklchStr: string): string {
+  const regex = /oklch\(\s*([0-9.]+%?)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)/i;
+  const match = oklchStr.match(regex);
+  if (!match) return oklchStr;
+
+  let L = match[1].endsWith('%') ? parseFloat(match[1]) / 100 : parseFloat(match[1]);
+  const C = parseFloat(match[2]);
+  const H = parseFloat(match[3]) * (Math.PI / 180);
+  const A = match[4] ? (match[4].endsWith('%') ? parseFloat(match[4]) / 100 : parseFloat(match[4])) : 1;
+
+  // OKLCH to OKLAB
+  const a_val = C * Math.cos(H);
+  const b_val = C * Math.sin(H);
+
+  // OKLAB to LMS
+  const l_lms = L + 0.3963377774 * a_val + 0.2158037573 * b_val;
+  const m_lms = L - 0.1055613458 * a_val - 0.0638541728 * b_val;
+  const s_lms = L - 0.0894841775 * a_val - 1.2914855480 * b_val;
+
+  // LMS to linear RGB
+  const l3 = l_lms * l_lms * l_lms;
+  const m3 = m_lms * m_lms * m_lms;
+  const s3 = s_lms * s_lms * s_lms;
+
+  let r_lin = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+  let g_lin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+  let b_lin = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
+
+  // sRGB gamma correction
+  const gamma = (c: number) => {
+    const abs = Math.abs(c);
+    const corrected = abs <= 0.0031308 ? 12.92 * abs : 1.055 * Math.pow(abs, 1 / 2.4) - 0.055;
+    return c < 0 ? -corrected : corrected;
+  };
+
+  const r = Math.max(0, Math.min(255, Math.round(gamma(r_lin) * 255)));
+  const g = Math.max(0, Math.min(255, Math.round(gamma(g_lin) * 255)));
+  const b = Math.max(0, Math.min(255, Math.round(gamma(b_lin) * 255)));
+
+  return A === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${A})`;
+}
+
+// High-fidelity OKLAB to RGB conversion helper
+function oklabToRgb(oklabStr: string): string {
+  const regex = /oklab\(\s*([0-9.]+%?)\s+([+-]?[0-9.]+)\s+([+-]?[0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)/i;
+  const match = oklabStr.match(regex);
+  if (!match) return oklabStr;
+
+  let L = match[1].endsWith('%') ? parseFloat(match[1]) / 100 : parseFloat(match[1]);
+  const a_val = parseFloat(match[2]);
+  const b_val = parseFloat(match[3]);
+  const A = match[4] ? (match[4].endsWith('%') ? parseFloat(match[4]) / 100 : parseFloat(match[4])) : 1;
+
+  // OKLAB to LMS
+  const l_lms = L + 0.3963377774 * a_val + 0.2158037573 * b_val;
+  const m_lms = L - 0.1055613458 * a_val - 0.0638541728 * b_val;
+  const s_lms = L - 0.0894841775 * a_val - 1.2914855480 * b_val;
+
+  // LMS to linear RGB
+  const l3 = l_lms * l_lms * l_lms;
+  const m3 = m_lms * m_lms * m_lms;
+  const s3 = s_lms * s_lms * s_lms;
+
+  let r_lin = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+  let g_lin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+  let b_lin = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
+
+  const gamma = (c: number) => {
+    const abs = Math.abs(c);
+    const corrected = abs <= 0.0031308 ? 12.92 * abs : 1.055 * Math.pow(abs, 1 / 2.4) - 0.055;
+    return c < 0 ? -corrected : corrected;
+  };
+
+  const r = Math.max(0, Math.min(255, Math.round(gamma(r_lin) * 255)));
+  const g = Math.max(0, Math.min(255, Math.round(gamma(g_lin) * 255)));
+  const b = Math.max(0, Math.min(255, Math.round(gamma(b_lin) * 255)));
+
+  return A === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${A})`;
+}
+
 // Helper Static Canvas component to draw plan for any space inside the PDF
 const RoomStaticCanvasHistory: React.FC<{
   espacio: Espacio;
@@ -221,9 +302,8 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
             return val.bind(target);
           }
           if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
-            return val
-              .replace(/oklch\([^)]*\)/gi, '#475569')
-              .replace(/oklab\([^)]*\)/gi, '#334155');
+            return val.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m))
+                      .replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
           }
           return val;
         }
@@ -254,8 +334,8 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
           onclone: (clonedDoc) => {
             clonedDoc.querySelectorAll('style').forEach((styleEl) => {
               let cssText = styleEl.textContent || '';
-              cssText = cssText.replace(/oklch\([^)]*\)/gi, '#475569');
-              cssText = cssText.replace(/oklab\([^)]*\)/gi, '#334155');
+              cssText = cssText.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m));
+              cssText = cssText.replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
               styleEl.textContent = cssText;
             });
           }
@@ -290,7 +370,7 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
         window.getComputedStyle = originalGetComputedStyle;
         setExportingProjectId(null);
       }
-    }, 400);
+    }, 450);
   };
 
   if (!isOpen) return null;
@@ -447,11 +527,11 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
                           <div className="grid grid-cols-4 gap-4 mt-6">
                             <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
                               <span className="block text-[10px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
-                              <span className="text-lg font-bold text-slate-200 mt-1 block">{opt.totalLaminas} piezas</span>
+                              <span className="text-lg font-bold text-slate-250 mt-1 block">{opt.totalLaminas} piezas</span>
                             </div>
                             <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
                               <span className="block text-[10px] font-bold text-slate-500 uppercase">Medida Comercial</span>
-                              <span className="text-lg font-bold text-slate-200 mt-1 block">{proyecto.pvcConfig.largoComercial.toFixed(2)}m x {proyecto.pvcConfig.anchoUtil.toFixed(2)}m</span>
+                              <span className="text-lg font-bold text-slate-250 mt-1 block">{proyecto.pvcConfig.largoComercial.toFixed(2)}m x {proyecto.pvcConfig.anchoUtil.toFixed(2)}m</span>
                             </div>
                             <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
                               <span className="block text-[10px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
