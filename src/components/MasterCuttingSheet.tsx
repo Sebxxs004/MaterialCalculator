@@ -719,7 +719,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
 
                       {/* Visual cut bar */}
                       <div className="h-11 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
-                        {lamina.cortes.map((corte: any) => {
+                        {lamina.cortes.map((corte: any, cIdx: number) => {
                           const pct = (corte.largo / pvcConfig.largoComercial) * 100;
                           const espacioIdx = espacios.findIndex(e => e.id === corte.espacioId);
                           const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
@@ -727,32 +727,36 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                           return (
                             <div
                               key={corte.id}
-                              style={{ width: `${pct}%`, display: 'block', textAlign: 'center', paddingTop: '6px', boxSizing: 'border-box' }}
-                              className={`h-full border-r border-slate-950/20 text-[10px] font-bold px-0.5 ${colorClass}`}
+                              style={{ 
+                                width: `${pct}%`, 
+                                display: 'block', 
+                                textAlign: 'center', 
+                                lineHeight: '44px', 
+                                height: '44px',
+                                boxSizing: 'border-box'
+                              }}
+                              className={`h-full border-r border-slate-950/20 text-xs font-black text-white ${colorClass}`}
                             >
-                              <div style={{ display: 'block', lineHeight: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {corte.largo.toFixed(2)}m
-                              </div>
-                              <div style={{ display: 'block', fontSize: '7.5px', lineHeight: '10px', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>
-                                {corte.espacioNombre}
-                              </div>
+                              {cIdx + 1}
                             </div>
                           );
                         })}
 
                         {totalSobrante > 0 && (
                           <div
-                            style={{ width: `${(totalSobrante / pvcConfig.largoComercial) * 100}%`, display: 'block', textAlign: 'center', paddingTop: '6px', boxSizing: 'border-box' }}
-                            className={`h-full text-[10px] font-semibold ${
-                              totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-250' : 'bg-rose-950/30 text-rose-450/80'
+                            style={{ 
+                              width: `${(totalSobrante / pvcConfig.largoComercial) * 100}%`, 
+                              display: 'block', 
+                              textAlign: 'center', 
+                              lineHeight: '44px', 
+                              height: '44px',
+                              boxSizing: 'border-box'
+                            }}
+                            className={`h-full text-xs font-black ${
+                              totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-300' : 'bg-rose-950/30 text-rose-400'
                             }`}
                           >
-                            <div style={{ display: 'block', lineHeight: '13px' }}>
-                              {totalSobrante.toFixed(2)}m
-                            </div>
-                            <div style={{ display: 'block', fontSize: '7.5px', lineHeight: '10px', opacity: 0.8, marginTop: '1px' }}>
-                              {totalSobrante > 0.05 ? 'Retal' : 'Desp.'}
-                            </div>
+                            {totalSobrante > 0.05 ? 'R' : 'D'}
                           </div>
                         )}
                       </div>
