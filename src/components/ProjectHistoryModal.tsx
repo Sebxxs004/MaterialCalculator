@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import type { ProyectoGuardado } from '../types/material';
+import React, { useEffect, useState, useRef } from 'react';
+import type { ProyectoGuardado, Espacio, PVCConfig, ResultadoConsolidado } from '../types/material';
 import { projectStorageService } from '../services/projectStorageService';
-import { pvcOptimizerEngine } from '../helpers/pvcOptimizerEngine';
+import { pvcOptimizerEngine, obtenerVerticesDeEspacio } from '../helpers/pvcOptimizerEngine';
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { 
   X, 
   User, 
@@ -11,7 +12,8 @@ import {
   Edit3, 
   FileDown, 
   Layers, 
-  FolderOpen
+  FolderOpen,
+  Loader
 } from 'lucide-react';
 
 interface ProjectHistoryModalProps {
@@ -20,12 +22,163 @@ interface ProjectHistoryModalProps {
   onSelectProject: (proyecto: ProyectoGuardado) => void;
 }
 
+const SEGMENT_COLORS = [
+  'bg-indigo-600 border-indigo-500 text-indigo-100',
+  'bg-violet-600 border-violet-500 text-violet-100',
+  'bg-emerald-600 border-emerald-500 text-emerald-100',
+  'bg-amber-600 border-amber-500 text-amber-100',
+  'bg-pink-600 border-pink-500 text-pink-100',
+  'bg-cyan-600 border-cyan-500 text-cyan-100',
+  'bg-rose-600 border-rose-500 text-rose-100',
+];
+
+// Helper Static Canvas component to draw plan for any space inside the PDF
+const RoomStaticCanvasHistory: React.FC<{
+  espacio: Espacio;
+  config: PVCConfig;
+  resultadoConsolidado: ResultadoConsolidado;
+}> = ({ espacio, config, resultadoConsolidado }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const vertices = obtenerVerticesDeEspacio(espacio);
+    const xs = vertices.map(v => v.x);
+    const ys = vertices.map(v => v.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const ancho = maxX - minX;
+    const largo = maxY - minY;
+
+    // Background
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Padding & scale
+    const padding = 35;
+    const scale = Math.min((canvas.width - padding * 2) / (ancho || 1), (canvas.height - padding * 2) / (largo || 1));
+    const w = ancho * scale;
+    const h = largo * scale;
+    const startX = (canvas.width - w) / 2;
+    const startY = (canvas.height - h) / 2;
+
+    // Clip inside room boundaries
+    ctx.save();
+    ctx.beginPath();
+    vertices.forEach((v, idx) => {
+      const px = startX + (v.x - minX) * scale;
+      const py = startY + (v.y - minY) * scale;
+      if (idx === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.clip();
+
+    // Draw cuts
+    const cuts = resultadoConsolidado.laminasComerciales.flatMap(lamina =>
+      lamina.cortes
+        .filter(c => c.espacioId === espacio.id)
+        .map(c => ({
+          ...c,
+          isFirstInLamina: lamina.cortes[0].id === c.id
+        }))
+    );
+
+    cuts.forEach((corte) => {
+      if (!corte.poligonoRecortado || corte.poligonoRecortado.length === 0) return;
+
+      const esInicioDeLamina = corte.isFirstInLamina;
+      let fillStyle = 'rgba(99, 102, 241, 0.45)';
+      let strokeStyle = 'rgba(129, 140, 248, 0.8)';
+      
+      if (!esInicioDeLamina) {
+        fillStyle = 'rgba(16, 185, 129, 0.45)';
+        strokeStyle = 'rgba(52, 211, 153, 0.8)';
+      }
+
+      ctx.fillStyle = fillStyle;
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = 1;
+
+      corte.poligonoRecortado.forEach((ring) => {
+        if (ring.length < 3) return;
+        ctx.beginPath();
+        ring.forEach((pt, idx) => {
+          const px = startX + (pt[0] - minX) * scale;
+          const py = startY + (pt[1] - minY) * scale;
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      });
+    });
+
+    ctx.restore();
+
+    // Draw borders (walls)
+    ctx.strokeStyle = '#4f46e5';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    vertices.forEach((v, idx) => {
+      const px = startX + (v.x - minX) * scale;
+      const py = startY + (v.y - minY) * scale;
+      if (idx === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.stroke();
+
+    // Draw dimensions
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 9px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    vertices.forEach((v1, idx) => {
+      const v2 = vertices[(idx + 1) % vertices.length];
+      const dist = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
+
+      if (dist < 0.1) return;
+
+      const mx = startX + ((v1.x + v2.x) / 2 - minX) * scale;
+      const my = startY + ((v1.y + v2.y) / 2 - minY) * scale;
+
+      const dx = v2.x - v1.x;
+      const dy = v2.y - v1.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const nx = -dy / (len || 1);
+      const ny = dx / (len || 1);
+
+      ctx.fillText(`${dist.toFixed(2)} m`, mx + nx * 12, my + ny * 12);
+    });
+  }, [espacio, config, resultadoConsolidado]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={240}
+      height={240}
+      className="w-[240px] h-[240px] rounded-xl border border-slate-800 bg-[#0f172a]"
+    />
+  );
+};
+
 export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
   isOpen,
   onClose,
   onSelectProject,
 }) => {
   const [proyectos, setProyectos] = useState<ProyectoGuardado[]>([]);
+  const [exportingProjectId, setExportingProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -55,115 +208,86 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
 
   const descargarPDFProyecto = async (proyecto: ProyectoGuardado, e: React.MouseEvent) => {
     e.stopPropagation();
-    try {
-      // Calculate consolidated optimization results for the saved project
-      const opt = pvcOptimizerEngine.optimizarCortes(proyecto.espacios, proyecto.pvcConfig);
-      
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: 'a4',
-      });
-
-
-      // Header Block
-      doc.setFillColor(15, 23, 42); // slate 900
-      doc.rect(0, 0, doc.internal.pageSize.getWidth(), 80, 'F');
-      
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text('MaterialCalculator - Reporte de Obra', 24, 40);
-      
-      doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(148, 163, 184); // slate 400
-      doc.text('Optimizador de Cielo Raso en PVC', 24, 55);
-
-      // Metadatos
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text('Detalles del Proyecto', 24, 110);
-
-      doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.text(`Nombre Proyecto: ${proyecto.nombreProyecto}`, 24, 130);
-      doc.text(`Cliente: ${proyecto.cliente || 'Consumidor Final'}`, 24, 145);
-      doc.text(`Fecha: ${new Date(proyecto.fecha).toLocaleDateString()}`, 24, 160);
-
-      // PVC Config Details
-      doc.setFont('Helvetica', 'bold');
-      doc.text('Especificación PVC:', 250, 110);
-      doc.setFont('Helvetica', 'normal');
-      doc.text(`Largo Comercial: ${proyecto.pvcConfig.largoComercial}m`, 250, 130);
-      doc.text(`Ancho Útil: ${proyecto.pvcConfig.anchoUtil}m`, 250, 145);
-      doc.text(`Precio por Lámina: $${proyecto.pvcConfig.precioPorLamina.toLocaleString('es-CO')}`, 250, 160);
-
-      // Line separator
-      doc.setDrawColor(226, 232, 240);
-      doc.line(24, 180, doc.internal.pageSize.getWidth() - 24, 180);
-
-      // Room Designs and Snapshot Preview
-      if (proyecto.canvasDataURL) {
-        doc.setFont('Helvetica', 'bold');
-        doc.text('Plano de Distribución Activo:', 24, 205);
-        try {
-          doc.addImage(proyecto.canvasDataURL, 'PNG', 24, 220, 180, 180);
-        } catch {
-          doc.text('[Error al renderizar plano]', 24, 230);
+    setExportingProjectId(proyecto.id);
+    
+    // Temporarily override the main window's getComputedStyle during html2canvas runtime.
+    const originalGetComputedStyle = window.getComputedStyle;
+    window.getComputedStyle = function (el, pseudoElt) {
+      const style = originalGetComputedStyle.call(window, el, pseudoElt);
+      return new Proxy(style, {
+        get(target, prop) {
+          const val = target[prop as any];
+          if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
+            return val
+              .replace(/oklch\([^)]*\)/gi, '#475569')
+              .replace(/oklab\([^)]*\)/gi, '#334155');
+          }
+          return val;
         }
-      }
-
-      // Summary Stats
-      const statsY = 220;
-      doc.setFont('Helvetica', 'bold');
-      doc.text('Resumen de Optimización:', 230, 205);
-      doc.setFont('Helvetica', 'normal');
-      doc.text(`Total Habitaciones: ${proyecto.espacios.length}`, 230, statsY);
-      doc.text(`Láminas a Comprar (5.95m): ${opt.totalLaminas} unidades`, 230, statsY + 18);
-      doc.text(`Porcentaje de Desperdicio: ${opt.desperdicioGlobalPorcentaje}%`, 230, statsY + 36);
-      
-      const costoTotal = opt.totalLaminas * proyecto.pvcConfig.precioPorLamina;
-      doc.setFont('Helvetica', 'bold');
-      doc.text(`Costo Total Estimado: $${costoTotal.toLocaleString('es-CO')}`, 230, statsY + 60);
-
-      // Table of Spaces
-      doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('Habitaciones / Espacios Calculados:', 24, 425);
-      
-      let rowY = 445;
-      doc.setFontSize(9);
-      doc.setFillColor(241, 245, 249);
-      doc.rect(24, rowY - 10, doc.internal.pageSize.getWidth() - 48, 16, 'F');
-      doc.setTextColor(71, 85, 105);
-      doc.setFont('Helvetica', 'bold');
-      doc.text('Espacio', 30, rowY);
-      doc.text('Medidas (Ancho x Largo)', 160, rowY);
-      doc.text('Orientación', 300, rowY);
-      
-      doc.setFont('Helvetica', 'normal');
-      doc.setTextColor(15, 23, 42);
-      
-      proyecto.espacios.forEach((esp) => {
-        rowY += 18;
-        doc.text(esp.nombre, 30, rowY);
-        doc.text(`${esp.ancho.toFixed(2)}m x ${esp.largo.toFixed(2)}m`, 160, rowY);
-        doc.text(esp.orientacionSeleccionada === 'auto' ? 'Automática' : esp.orientacionSeleccionada === 'largo' ? 'Largo' : 'Ancho', 300, rowY);
       });
+    };
 
-      // Footer
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('MaterialCalculator - Generado automáticamente.', 24, doc.internal.pageSize.getHeight() - 20);
+    // Allow time for the offscreen rendering area to mount and draw canvases
+    setTimeout(async () => {
+      try {
+        const rootElement = document.getElementById(`history-pdf-export-root-${proyecto.id}`);
+        if (!rootElement) {
+          alert('Error: No se pudo localizar el contenedor de exportación.');
+          window.getComputedStyle = originalGetComputedStyle;
+          setExportingProjectId(null);
+          return;
+        }
 
-      const safeName = proyecto.nombreProyecto.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      doc.save(`reporte_${safeName}.pdf`);
-    } catch (err) {
-      console.error(err);
-      alert('Error al generar PDF de historial.');
-    }
+        const doc = new jsPDF({
+          orientation: 'portrait',
+          unit: 'px',
+          format: 'a4',
+        });
+
+        const canvas = await html2canvas(rootElement, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#070b13',
+          onclone: (clonedDoc) => {
+            clonedDoc.querySelectorAll('style').forEach((styleEl) => {
+              let cssText = styleEl.textContent || '';
+              cssText = cssText.replace(/oklch\([^)]*\)/gi, '#475569');
+              cssText = cssText.replace(/oklab\([^)]*\)/gi, '#334155');
+              styleEl.textContent = cssText;
+            });
+          }
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        // Add first page
+        doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        // Multi-page handling
+        while (heightLeft >= 0) {
+          position = heightLeft - imgHeight;
+          doc.addPage();
+          doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
+
+        const safeName = proyecto.nombreProyecto.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        doc.save(`reporte_${safeName}.pdf`);
+      } catch (err) {
+        console.error(err);
+        alert('Ocurrió un error al generar el PDF del historial.');
+      } finally {
+        window.getComputedStyle = originalGetComputedStyle;
+        setExportingProjectId(null);
+      }
+    }, 400);
   };
 
   if (!isOpen) return null;
@@ -198,101 +322,268 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
               <FolderOpen className="w-12 h-12 text-slate-600 mx-auto mb-4" />
               <h3 className="text-base font-semibold text-slate-300">No hay proyectos almacenados</h3>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Todos los proyectos que guardes se guardarán localmente en la base de datos de tu navegador.
+                Guarda tu proyecto actual usando el botón de la barra superior para registrarlo en el historial.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {proyectos.map((proyecto) => {
                 const opt = pvcOptimizerEngine.optimizarCortes(proyecto.espacios, proyecto.pvcConfig);
+                const costoTotal = opt.totalLaminas * proyecto.pvcConfig.precioPorLamina;
+                const isExportingThis = exportingProjectId === proyecto.id;
 
                 return (
                   <div
                     key={proyecto.id}
-                    className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between hover:border-slate-700/60 hover:bg-slate-900/60 transition-all duration-300 group"
+                    className="bg-slate-900/40 rounded-2xl border border-slate-800/80 p-4 hover:border-indigo-500/40 transition-all duration-300 flex flex-col justify-between group shadow-lg"
                   >
                     <div>
-                      {/* Base64 canvas render snapshot */}
-                      <div className="w-full h-36 bg-slate-950 rounded-xl overflow-hidden mb-4 border border-slate-800 flex items-center justify-center relative">
+                      {/* Project snapshot/canvas thumbnail */}
+                      <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-950 border border-slate-800 relative flex items-center justify-center">
                         {proyecto.canvasDataURL ? (
                           <img
                             src={proyecto.canvasDataURL}
-                            alt={proyecto.nombreProyecto}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            alt="Vista previa"
+                            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                           />
                         ) : (
-                          <div className="absolute inset-0 bg-gradient-to-br from-indigo-950/40 to-slate-900 flex flex-col items-center justify-center text-slate-500">
-                            <Layers className="w-6 h-6 text-indigo-500/30 mb-1" />
-                            <span className="text-[10px] tracking-widest uppercase">Sin Imagen</span>
-                          </div>
+                          <Layers className="w-8 h-8 text-slate-700" />
                         )}
-                        <span className="absolute bottom-2.5 right-2.5 px-2 py-0.5 bg-slate-950/80 backdrop-blur-sm rounded text-[9px] text-slate-400 border border-slate-800/50">
-                          {proyecto.espacios.length} {proyecto.espacios.length === 1 ? 'hab' : 'habs'}
+                        <span className="absolute top-2 right-2 px-2 py-0.5 text-[9px] font-semibold bg-slate-900/90 text-indigo-400 rounded-md border border-slate-800/80">
+                          {proyecto.espacios.length} Espacio(s)
                         </span>
                       </div>
 
-                      {/* Info header */}
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-semibold text-slate-200 truncate">
-                          {proyecto.nombreProyecto}
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      {/* Info body */}
+                      <div className="mt-3.5 space-y-1">
+                        <h4 className="text-sm font-semibold text-slate-200 truncate">{proyecto.nombreProyecto}</h4>
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                           <User className="w-3.5 h-3.5 text-slate-500" />
-                          <span className="truncate">{proyecto.cliente || 'Consumidor Final'}</span>
+                          <span className="truncate">{proyecto.cliente}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                          <Calendar className="w-3.5 h-3.5" />
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                          <Calendar className="w-3.5 h-3.5 text-slate-500" />
                           <span>{new Date(proyecto.fecha).toLocaleDateString()}</span>
                         </div>
                       </div>
 
-                      {/* Summary Metrics */}
-                      <div className="mt-4 pt-3 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-[10px] text-slate-400 bg-slate-950/20 p-2.5 rounded-xl">
-                        <div className="space-y-0.5">
-                          <span className="text-slate-500 block">Láminas (5.95m):</span>
-                          <span className="font-bold text-indigo-400 text-xs">{opt.totalLaminas} uds</span>
+                      {/* Stat badges list */}
+                      <div className="grid grid-cols-3 gap-2 mt-4 pt-3.5 border-t border-slate-850 text-center">
+                        <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                          <span className="block text-[8px] text-slate-500 font-medium uppercase">Láminas</span>
+                          <span className="text-xs font-bold text-slate-300">{opt.totalLaminas}</span>
                         </div>
-                        <div className="space-y-0.5">
-                          <span className="text-slate-500 block">Desperdicio:</span>
-                          <span className={`font-bold text-xs ${
-                            opt.desperdicioGlobalPorcentaje > 15 ? 'text-amber-400' : 'text-emerald-400'
-                          }`}>
-                            {opt.desperdicioGlobalPorcentaje}%
-                          </span>
+                        <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                          <span className="block text-[8px] text-slate-500 font-medium uppercase">Desperdicio</span>
+                          <span className="text-xs font-bold text-amber-500">{opt.desperdicioGlobalPorcentaje}%</span>
+                        </div>
+                        <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                          <span className="block text-[8px] text-slate-500 font-medium uppercase">Costo</span>
+                          <span className="text-xs font-bold text-emerald-500">${(costoTotal / 1000).toFixed(0)}k</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Card Actions */}
-                    <div className="mt-5 pt-3 border-t border-slate-800/60 grid grid-cols-3 gap-2">
+                    {/* Action buttons */}
+                    <div className="grid grid-cols-3 gap-2 mt-4.5 pt-3.5 border-t border-slate-850">
                       <button
                         type="button"
                         onClick={() => onSelectProject(proyecto)}
-                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                        title="Cargar en la pantalla de edición"
+                        className="flex items-center justify-center gap-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-500/10 cursor-pointer transition-all"
+                        title="Abrir y Editar"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
-                        Editar
+                        Abrir
                       </button>
                       <button
                         type="button"
                         onClick={(e) => descargarPDFProyecto(proyecto, e)}
-                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer border border-slate-700/40"
-                        title="Descargar reporte PDF del proyecto"
+                        disabled={isExportingThis}
+                        className="flex items-center justify-center gap-1 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700/50 cursor-pointer transition-all disabled:cursor-not-allowed"
+                        title="Descargar PDF"
                       >
-                        <FileDown className="w-3.5 h-3.5" />
+                        {isExportingThis ? (
+                          <Loader className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <FileDown className="w-3.5 h-3.5" />
+                        )}
                         PDF
                       </button>
                       <button
                         type="button"
                         onClick={(e) => eliminarProyecto(proyecto.id, e)}
-                        className="flex items-center justify-center gap-1 py-2 px-2.5 bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-                        title="Eliminar de IndexedDB"
+                        className="flex items-center justify-center gap-1 py-2 bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-400 border border-slate-750 hover:border-rose-900/60 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+                        title="Eliminar"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        Borrar
+                        Eliminar
                       </button>
                     </div>
+
+                    {/* DEDICATED OFFSCREEN MULTI-ROOM REPORT CONTAINER FOR HISTORY PDF GENERATION */}
+                    {isExportingThis && (
+                      <div
+                        id={`history-pdf-export-root-${proyecto.id}`}
+                        style={{ position: 'absolute', left: '-9999px', top: '0', width: '740px' }}
+                        className="bg-[#070b13] p-8 text-slate-100 space-y-8 Outfit"
+                      >
+                        {/* Document Header Page */}
+                        <div className="border-b border-slate-800 pb-5">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h1 className="text-2xl font-bold text-white tracking-tight">Reporte Técnico de Optimización</h1>
+                              <p className="text-xs text-indigo-400 font-semibold uppercase mt-0.5">MaterialCalculator - PVC Ceiling Specialist</p>
+                            </div>
+                            <div className="text-right text-[10px] text-slate-400">
+                              <p>Proyecto: <span className="text-slate-200 font-semibold">{proyecto.nombreProyecto}</span></p>
+                              <p>Fecha: {new Date(proyecto.fecha).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+
+                          {/* Project statistics summary grid */}
+                          <div className="grid grid-cols-4 gap-4 mt-6">
+                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
+                              <span className="text-lg font-bold text-slate-200 mt-1 block">{opt.totalLaminas} piezas</span>
+                            </div>
+                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Medida Comercial</span>
+                              <span className="text-lg font-bold text-slate-200 mt-1 block">{proyecto.pvcConfig.largoComercial.toFixed(2)}m x {proyecto.pvcConfig.anchoUtil.toFixed(2)}m</span>
+                            </div>
+                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
+                              <span className="text-lg font-bold text-amber-400 mt-1 block">{opt.desperdicioGlobalPorcentaje}%</span>
+                            </div>
+                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Presupuesto Estimado</span>
+                              <span className="text-lg font-bold text-emerald-400 mt-1 block">
+                                ${costoTotal.toLocaleString('es-CO')}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 1. PLANS FOR ALL ROOMS IN THE PROJECT */}
+                        <div className="space-y-4">
+                          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
+                            Planos de Distribución y Cortes por Habitación
+                          </h2>
+                          
+                          <div className="grid grid-cols-2 gap-6">
+                            {proyecto.espacios.map((espacio) => {
+                              const desglose = opt.desgloseEspacios.find(d => d.espacioId === espacio.id);
+                              const orientacion = desglose?.orientacionElegida || 'largo';
+
+                              return (
+                                <div
+                                  key={espacio.id}
+                                  className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-4 flex flex-col items-center space-y-3"
+                                >
+                                  <div className="w-full flex justify-between items-center text-xs">
+                                    <span className="font-bold text-slate-200">{espacio.nombre}</span>
+                                    <span className="text-[10px] text-slate-400 capitalize">
+                                      Tendido: {orientacion === 'largo' ? 'Paralelo al Largo' : 'Paralelo al Ancho'}
+                                    </span>
+                                  </div>
+
+                                  {/* Draw canvas drawing for this room */}
+                                  <div className="flex justify-center w-full">
+                                    <RoomStaticCanvasHistory
+                                      espacio={espacio}
+                                      config={proyecto.pvcConfig}
+                                      resultadoConsolidado={opt}
+                                    />
+                                  </div>
+
+                                  <div className="w-full grid grid-cols-2 gap-2 text-[10px] text-slate-400 border-t border-slate-800/40 pt-2">
+                                    <div>
+                                      <span>Forma: </span>
+                                      <span className="text-slate-300 font-semibold capitalize">{espacio.tipo || 'rectangular'}</span>
+                                    </div>
+                                    <div>
+                                      <span>Área estimada: </span>
+                                      <span className="text-slate-300 font-semibold">{espacio.ancho}m x {espacio.largo}m</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 2. WORKSHOP CUTTING GUIDE FOR ALL SHEET BARS */}
+                        <div className="space-y-4 pt-4">
+                          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
+                            Guía Técnica de Cortes de Fábrica (Taller)
+                          </h2>
+
+                          <div className="space-y-4">
+                            {opt.laminasComerciales.map((lamina, index) => {
+                              const totalUsado = lamina.cortes.reduce((acc, c) => acc + c.largo, 0);
+                              const totalSobrante = parseFloat((proyecto.pvcConfig.largoComercial - totalUsado).toFixed(3));
+
+                              return (
+                                <div
+                                  key={lamina.id}
+                                  className="bg-slate-900/30 rounded-xl p-3.5 border border-slate-800/80 space-y-2.5"
+                                >
+                                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                                    <span className="font-bold text-slate-200">Lámina de Fábrica #{index + 1} ({proyecto.pvcConfig.largoComercial.toFixed(2)}m)</span>
+                                    <span>Usado: {totalUsado.toFixed(2)}m / Sobrante: {totalSobrante.toFixed(2)}m</span>
+                                  </div>
+
+                                  {/* Visual cut bar */}
+                                  <div className="h-7 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
+                                    {lamina.cortes.map((corte) => {
+                                      const pct = (corte.largo / proyecto.pvcConfig.largoComercial) * 100;
+                                      const espacioIdx = proyecto.espacios.findIndex(e => e.id === corte.espacioId);
+                                      const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
+
+                                      return (
+                                        <div
+                                          key={corte.id}
+                                          style={{ width: `${pct}%` }}
+                                          className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
+                                        >
+                                          <span className="truncate w-full text-center">{corte.largo}m</span>
+                                          <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
+                                        </div>
+                                      );
+                                    })}
+
+                                    {totalSobrante > 0 && (
+                                      <div
+                                        style={{ width: `${(totalSobrante / proyecto.pvcConfig.largoComercial) * 100}%` }}
+                                        className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
+                                          totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-200' : 'bg-rose-950/30 text-rose-400/80'
+                                        }`}
+                                      >
+                                        <span>{totalSobrante}m</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Step list for this sheet */}
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] text-slate-400 pt-1.5 border-t border-slate-800/20">
+                                    {lamina.cortes.map((corte, cIdx) => (
+                                      <span key={corte.id}>
+                                        <strong className="text-slate-300 font-bold">{cIdx + 1}.</strong> {corte.largo.toFixed(2)}m ({corte.espacioNombre})
+                                      </span>
+                                    ))}
+                                    {totalSobrante > 0.05 && (
+                                      <span className="text-amber-400 font-medium">
+                                        <strong>R.</strong> Retal de {totalSobrante.toFixed(2)}m (Guardar)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 );
               })}
