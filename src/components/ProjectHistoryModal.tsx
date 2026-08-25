@@ -6,7 +6,6 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { 
   X, 
-  User, 
   Calendar, 
   Trash2, 
   Edit3, 
@@ -178,7 +177,7 @@ const RoomStaticCanvasHistory: React.FC<{
       const esInicioDeLamina = corte.isFirstInLamina;
       let fillStyle = 'rgba(99, 102, 241, 0.45)';
       let strokeStyle = 'rgba(129, 140, 248, 0.8)';
-      
+
       if (!esInicioDeLamina) {
         fillStyle = 'rgba(16, 185, 129, 0.45)';
         strokeStyle = 'rgba(52, 211, 153, 0.8)';
@@ -327,156 +326,157 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
           format: 'a4',
         });
 
-        const canvas = await html2canvas(rootElement, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#070b13',
-          onclone: (clonedDoc) => {
-            clonedDoc.querySelectorAll('style').forEach((styleEl) => {
-              let cssText = styleEl.textContent || '';
-              cssText = cssText.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m));
-              cssText = cssText.replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
-              styleEl.textContent = cssText;
-            });
+        const pages = rootElement.querySelectorAll('.pdf-page');
+        if (pages.length === 0) {
+          alert('Error: No se localizaron páginas en el reporte.');
+          window.getComputedStyle = originalGetComputedStyle;
+          setExportingProjectId(null);
+          return;
+        }
+
+        for (let i = 0; i < pages.length; i++) {
+          const pageEl = pages[i] as HTMLElement;
+          const canvas = await html2canvas(pageEl, {
+            scale: 2.2,
+            useCORS: true,
+            backgroundColor: '#070b13',
+            onclone: (clonedDoc) => {
+              clonedDoc.querySelectorAll('style').forEach((styleEl) => {
+                let cssText = styleEl.textContent || '';
+                cssText = cssText.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m));
+                cssText = cssText.replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
+                styleEl.textContent = cssText;
+              });
+            }
+          });
+
+          const imgData = canvas.toDataURL('image/png');
+          const imgWidth = doc.internal.pageSize.getWidth();
+          const imgHeight = doc.internal.pageSize.getHeight();
+
+          if (i > 0) {
+            doc.addPage();
           }
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        const imgWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        // Add first page
-        doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        // Multi-page handling
-        while (heightLeft >= 0) {
-          position = heightLeft - imgHeight;
-          doc.addPage();
-          doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          heightLeft -= pageHeight;
+          doc.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
         }
 
         const safeName = proyecto.nombreProyecto.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         doc.save(`reporte_${safeName}.pdf`);
       } catch (err) {
         console.error(err);
-        alert('Ocurrió un error al generar el PDF del historial.');
+        alert('Ocurrió un error al generar el PDF.');
       } finally {
         window.getComputedStyle = originalGetComputedStyle;
         setExportingProjectId(null);
       }
-    }, 450);
+    }, 350);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md transition-all duration-300">
-      <div className="glass-panel w-full max-w-5xl rounded-3xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="glass-panel w-full max-w-4xl max-h-[85vh] rounded-3xl border border-slate-800 shadow-2xl flex flex-col overflow-hidden">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 bg-slate-900/40">
+        <div className="p-6 border-b border-slate-850 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl">
-              <FolderOpen className="w-5 h-5" />
+            <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/20">
+              <FolderOpen className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-100">Administrador de Proyectos</h2>
-              <p className="text-xs text-slate-400">Inspecciona, descarga reportes y edita proyectos guardados</p>
+              <h2 className="text-xl font-bold text-slate-100">Historial de Proyectos</h2>
+              <p className="text-xs text-slate-400">Administra, carga y exporta reportes de tus proyectos guardados</p>
             </div>
           </div>
           <button
-            type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
+            className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 rounded-xl transition-all cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Modal Content - Grid */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-950/20">
+        {/* Modal Body / Project List */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {proyectos.length === 0 ? (
-            <div className="text-center py-20 border border-dashed border-slate-800 rounded-2xl bg-slate-900/10">
-              <FolderOpen className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-              <h3 className="text-base font-semibold text-slate-300">No hay proyectos almacenados</h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Guarda tu proyecto actual usando el botón de la barra superior para registrarlo en el historial.
-              </p>
+            <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+              <div className="p-4 bg-slate-900 rounded-full border border-slate-800 text-slate-600">
+                <FolderOpen className="w-10 h-10" />
+              </div>
+              <p className="text-slate-400 text-sm font-medium">No tienes proyectos guardados aún.</p>
+              <p className="text-[11px] text-slate-500 max-w-xs">Comienza por definir habitaciones, consolidar tu proyecto y hacer click en "Guardar Proyecto".</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {proyectos.map((proyecto) => {
-                const opt = pvcOptimizerEngine.optimizarCortes(proyecto.espacios, proyecto.pvcConfig);
-                const costoTotal = opt.totalLaminas * proyecto.pvcConfig.precioPorLamina;
-                const isExportingThis = exportingProjectId === proyecto.id;
+                 const opt = pvcOptimizerEngine.optimizarCortes(proyecto.espacios, proyecto.pvcConfig);
+                 const costoTotal = opt.totalLaminas * proyecto.pvcConfig.precioPorLamina;
+                 const isExportingThis = exportingProjectId === proyecto.id;
 
-                return (
-                  <div
-                    key={proyecto.id}
-                    className="bg-slate-900/40 rounded-2xl border border-slate-800/80 p-4 hover:border-indigo-500/40 transition-all duration-300 flex flex-col justify-between group shadow-lg"
-                  >
-                    <div>
-                      {/* Project snapshot/canvas thumbnail */}
-                      <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-950 border border-slate-800 relative flex items-center justify-center">
-                        {proyecto.canvasDataURL ? (
-                          <img
-                            src={proyecto.canvasDataURL}
-                            alt="Vista previa"
-                            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                          />
-                        ) : (
-                          <Layers className="w-8 h-8 text-slate-700" />
-                        )}
-                        <span className="absolute top-2 right-2 px-2 py-0.5 text-[9px] font-semibold bg-slate-900/90 text-indigo-400 rounded-md border border-slate-800/80">
-                          {proyecto.espacios.length} Espacio(s)
+                 // Group commercial sheets in chunks of 4 to fit perfectly on A4 pages without split cuts
+                 const laminasChunkSize = 4;
+                 const laminasChunks: any[][] = [];
+                 for (let i = 0; i < opt.laminasComerciales.length; i += laminasChunkSize) {
+                   laminasChunks.push(opt.laminasComerciales.slice(i, i + laminasChunkSize));
+                 }
+
+                 // Group 3D room images in chunks of 2 to fit perfectly on A4 pages
+                 const espaciosCon3D = proyecto.espacios.filter(e => e.threeDDataURL);
+                 const chunks3D: any[][] = [];
+                 for (let i = 0; i < espaciosCon3D.length; i += 2) {
+                   chunks3D.push(espaciosCon3D.slice(i, i + 2));
+                 }
+
+                 return (
+                   <div
+                     key={proyecto.id}
+                     className="bg-slate-900/25 border border-slate-850 hover:border-slate-700/60 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-xl transition-all duration-200"
+                   >
+                     <div>
+                       <div className="flex justify-between items-start">
+                         <h3 className="font-bold text-slate-200 text-sm truncate max-w-[200px]" title={proyecto.nombreProyecto}>
+                           {proyecto.nombreProyecto}
+                         </h3>
+                         <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 font-semibold uppercase">
+                           Proyecto PVC
+                         </span>
+                       </div>
+
+                      <div className="flex items-center gap-4 text-[10px] text-slate-500 mt-2">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {new Date(proyecto.fecha).toLocaleDateString()}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-3.5 h-3.5" />
+                          {proyecto.espacios.length} {proyecto.espacios.length === 1 ? 'Habitación' : 'Habitaciones'}
                         </span>
                       </div>
 
-                      {/* Info body */}
-                      <div className="mt-3.5 space-y-1">
-                        <h4 className="text-sm font-semibold text-slate-200 truncate">{proyecto.nombreProyecto}</h4>
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                          <User className="w-3.5 h-3.5 text-slate-500" />
-                          <span className="truncate">{proyecto.cliente}</span>
+                      <div className="grid grid-cols-3 gap-2 mt-4 bg-slate-950/45 p-3 rounded-xl border border-slate-900/60 text-center">
+                        <div>
+                          <span className="text-[9px] text-slate-500 uppercase block font-semibold">Láminas</span>
+                          <span className="text-xs font-bold text-slate-350">{opt.totalLaminas} uds</span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                          <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                          <span>{new Date(proyecto.fecha).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-
-                      {/* Stat badges list */}
-                      <div className="grid grid-cols-3 gap-2 mt-4 pt-3.5 border-t border-slate-850 text-center">
-                        <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
-                          <span className="block text-[8px] text-slate-500 font-medium uppercase">Láminas</span>
-                          <span className="text-xs font-bold text-slate-300">{opt.totalLaminas}</span>
-                        </div>
-                        <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
-                          <span className="block text-[8px] text-slate-500 font-medium uppercase">Desperdicio</span>
+                        <div>
+                          <span className="text-[9px] text-slate-500 uppercase block font-semibold">Desperdicio</span>
                           <span className="text-xs font-bold text-amber-500">{opt.desperdicioGlobalPorcentaje}%</span>
                         </div>
-                        <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
-                          <span className="block text-[8px] text-slate-500 font-medium uppercase">Costo</span>
-                          <span className="text-xs font-bold text-emerald-500">${(costoTotal / 1000).toFixed(0)}k</span>
+                        <div>
+                          <span className="text-[9px] text-slate-500 uppercase block font-semibold">Costo</span>
+                          <span className="text-xs font-bold text-emerald-400">${costoTotal.toLocaleString('es-CO')}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="grid grid-cols-3 gap-2 mt-4.5 pt-3.5 border-t border-slate-850">
+                    <div className="grid grid-cols-3 gap-2.5 pt-2">
                       <button
                         type="button"
                         onClick={() => onSelectProject(proyecto)}
-                        className="flex items-center justify-center gap-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-500/10 cursor-pointer transition-all"
-                        title="Abrir y Editar"
+                        className="flex items-center justify-center gap-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-600/10 hover:shadow-indigo-500/20 cursor-pointer transition-all"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
-                        Abrir
+                        Cargar
                       </button>
                       <button
                         type="button"
@@ -507,190 +507,244 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
                     {isExportingThis && (
                       <div
                         id={`history-pdf-export-root-${proyecto.id}`}
-                        style={{ position: 'absolute', left: '-9999px', top: '0', width: '740px' }}
-                        className="bg-[#070b13] p-8 text-slate-100 space-y-8 Outfit"
+                        style={{ position: 'absolute', left: '-9999px', top: '0', width: '794px' }}
+                        className="text-slate-100 Outfit"
                       >
-                        {/* Document Header Page */}
-                        <div className="border-b border-slate-800 pb-5">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h1 className="text-2xl font-bold text-white tracking-tight">Reporte Técnico de Optimización</h1>
-                              <p className="text-xs text-indigo-400 font-semibold uppercase mt-0.5">MaterialCalculator - PVC Ceiling Specialist</p>
-                            </div>
-                            <div className="text-right text-[10px] text-slate-400">
-                              <p>Proyecto: <span className="text-slate-200 font-semibold">{proyecto.nombreProyecto}</span></p>
-                              <p>Fecha: {new Date(proyecto.fecha).toLocaleDateString()}</p>
-                            </div>
-                          </div>
-
-                          {/* Project statistics summary grid */}
-                          <div className="grid grid-cols-4 gap-4 mt-6">
-                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
-                              <span className="text-lg font-bold text-slate-250 mt-1 block">{opt.totalLaminas} piezas</span>
-                            </div>
-                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Medida Comercial</span>
-                              <span className="text-lg font-bold text-slate-250 mt-1 block">{proyecto.pvcConfig.largoComercial.toFixed(2)}m x {proyecto.pvcConfig.anchoUtil.toFixed(2)}m</span>
-                            </div>
-                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
-                              <span className="text-lg font-bold text-amber-400 mt-1 block">{opt.desperdicioGlobalPorcentaje}%</span>
-                            </div>
-                            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-                              <span className="block text-[10px] font-bold text-slate-500 uppercase">Presupuesto Estimado</span>
-                              <span className="text-lg font-bold text-emerald-400 mt-1 block">
-                                ${costoTotal.toLocaleString('es-CO')}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* 1. PLANS FOR ALL ROOMS IN THE PROJECT */}
-                        <div className="space-y-4">
-                          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
-                            Planos de Distribución y Cortes por Habitación
-                          </h2>
-                          
-                          <div className="grid grid-cols-2 gap-6">
-                            {proyecto.espacios.map((espacio) => {
-                              const desglose = opt.desgloseEspacios.find(d => d.espacioId === espacio.id);
-                              const orientacion = desglose?.orientacionElegida || 'largo';
-
-                              return (
-                                <div
-                                  key={espacio.id}
-                                  className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-4 flex flex-col items-center space-y-3"
-                                >
-                                  <div className="w-full flex justify-between items-center text-xs">
-                                    <span className="font-bold text-slate-200">{espacio.nombre}</span>
-                                    <span className="text-[10px] text-slate-400 capitalize">
-                                      Tendido: {orientacion === 'largo' ? 'Paralelo al Largo' : 'Paralelo al Ancho'}
-                                    </span>
-                                  </div>
-
-                                  {/* Draw canvas drawing for this room */}
-                                  <div className="flex justify-center w-full">
-                                    <RoomStaticCanvasHistory
-                                      espacio={espacio}
-                                      config={proyecto.pvcConfig}
-                                      resultadoConsolidado={opt}
-                                    />
-                                  </div>
-
-                                  {/* Room plan color legend inside the PDF */}
-                                  <div className="flex gap-4 justify-center text-[8px] text-slate-400 mt-0.5 pb-1">
-                                    <div className="flex items-center gap-1">
-                                      <span className="w-2.5 h-2.5 rounded-sm bg-indigo-600 border border-indigo-400"></span>
-                                      <span>Lámina Nueva</span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 border border-emerald-400"></span>
-                                      <span>Retal Reutilizado</span>
-                                    </div>
-                                  </div>
-
-                                  <div className="w-full grid grid-cols-2 gap-2 text-[10px] text-slate-400 border-t border-slate-800/40 pt-2">
-                                    <div>
-                                      <span>Forma: </span>
-                                      <span className="text-slate-300 font-semibold capitalize">{espacio.tipo || 'rectangular'}</span>
-                                    </div>
-                                    <div>
-                                      <span>Área estimada: </span>
-                                      <span className="text-slate-300 font-semibold">{espacio.ancho}m x {espacio.largo}m</span>
-                                    </div>
-                                  </div>
+                        {/* PAGE 1: HEADER, OVERVIEW AND 2D PLANS */}
+                        <div 
+                          className="pdf-page bg-[#070b13] p-10 flex flex-col justify-between"
+                          style={{ width: '794px', height: '1122px', boxSizing: 'border-box', overflow: 'hidden' }}
+                        >
+                          <div>
+                            {/* Header section */}
+                            <div className="border-b border-slate-800 pb-5">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h1 className="text-2xl font-bold text-white tracking-tight">Reporte Técnico de Optimización</h1>
+                                  <p className="text-xs text-indigo-400 font-semibold uppercase mt-0.5">MaterialCalculator - PVC Ceiling Specialist</p>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        </div>
+                                <div className="text-right text-[10px] text-slate-400">
+                                  <p>Proyecto: <span className="text-slate-200 font-semibold">{proyecto.nombreProyecto}</span></p>
+                                  <p>Fecha: {new Date(proyecto.fecha).toLocaleDateString()}</p>
+                                </div>
+                              </div>
 
-                        {/* 2. WORKSHOP CUTTING GUIDE FOR ALL SHEET BARS */}
-                        <div className="space-y-4 pt-4">
-                          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
-                            Guía Técnica de Cortes de Fábrica (Taller)
-                          </h2>
+                              {/* Project statistics summary grid */}
+                              <div className="grid grid-cols-4 gap-4 mt-6">
+                                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
+                                  <span className="text-base font-bold text-slate-200 mt-1 block">{opt.totalLaminas} piezas</span>
+                                </div>
+                                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Medida Comercial</span>
+                                  <span className="text-sm font-bold text-slate-200 mt-1 block">{proyecto.pvcConfig.largoComercial.toFixed(2)}m x {proyecto.pvcConfig.anchoUtil.toFixed(2)}m</span>
+                                </div>
+                                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
+                                  <span className="text-base font-bold text-amber-400 mt-1 block">{opt.desperdicioGlobalPorcentaje}%</span>
+                                </div>
+                                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Presupuesto Estimado</span>
+                                  <span className="text-base font-bold text-emerald-400 mt-1 block">
+                                    ${costoTotal.toLocaleString('es-CO')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
 
-                          <div className="space-y-4">
-                            {opt.laminasComerciales.map((lamina, index) => {
-                              const totalUsado = lamina.cortes.reduce((acc, c) => acc + c.largo, 0);
-                              const totalSobrante = parseFloat((proyecto.pvcConfig.largoComercial - totalUsado).toFixed(3));
+                            {/* 1. PLANS FOR ALL ROOMS IN THE PROJECT */}
+                            <div className="space-y-4 mt-6">
+                              <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
+                                Planos de Distribución y Cortes por Habitación
+                              </h2>
+                              
+                              <div className="grid grid-cols-2 gap-5">
+                                {proyecto.espacios.slice(0, 4).map((espacio) => {
+                                  const desglose = opt.desgloseEspacios.find((d: any) => d.espacioId === espacio.id);
+                                  const orientacion = desglose?.orientacionElegida || 'largo';
 
-                              return (
-                                <div
-                                  key={lamina.id}
-                                  className="bg-slate-900/30 rounded-xl p-3.5 border border-slate-800/80 space-y-2.5"
-                                >
-                                  <div className="flex items-center justify-between text-[10px] text-slate-400">
-                                    <span className="font-bold text-slate-200">Lámina de Fábrica #{index + 1} ({proyecto.pvcConfig.largoComercial.toFixed(2)}m)</span>
-                                    <span>Usado: {totalUsado.toFixed(2)}m / Sobrante: {totalSobrante.toFixed(2)}m</span>
-                                  </div>
-
-                                  {/* Visual cut bar */}
-                                  <div className="h-7 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
-                                    {lamina.cortes.map((corte) => {
-                                      const pct = (corte.largo / proyecto.pvcConfig.largoComercial) * 100;
-                                      const espacioIdx = proyecto.espacios.findIndex(e => e.id === corte.espacioId);
-                                      const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
-
-                                      return (
-                                        <div
-                                          key={corte.id}
-                                          style={{ width: `${pct}%` }}
-                                          className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
-                                        >
-                                          <span className="truncate w-full text-center">{corte.largo}m</span>
-                                          <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
-                                        </div>
-                                      );
-                                    })}
-
-                                    {totalSobrante > 0 && (
-                                      <div
-                                        style={{ width: `${(totalSobrante / proyecto.pvcConfig.largoComercial) * 100}%` }}
-                                        className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
-                                          totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-200' : 'bg-rose-950/30 text-rose-400/80'
-                                        }`}
-                                      >
-                                        <span>{totalSobrante}m</span>
+                                  return (
+                                    <div
+                                      key={espacio.id}
+                                      className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-3.5 flex flex-col items-center space-y-2.5"
+                                    >
+                                      <div className="w-full flex justify-between items-center text-xs">
+                                        <span className="font-bold text-slate-200 truncate max-w-[120px]">{espacio.nombre}</span>
+                                        <span className="text-[9px] text-slate-400 capitalize">
+                                          Tendido: {orientacion === 'largo' ? 'Largo' : 'Ancho'}
+                                        </span>
                                       </div>
-                                    )}
-                                  </div>
 
-                                  {/* Step list for this sheet */}
-                                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] text-slate-400 pt-1.5 border-t border-slate-800/20">
-                                    {lamina.cortes.map((corte, cIdx) => (
-                                      <span key={corte.id}>
-                                        <strong className="text-slate-300 font-bold">{cIdx + 1}.</strong> {corte.largo.toFixed(2)}m ({corte.espacioNombre})
-                                      </span>
-                                    ))}
-                                    {totalSobrante > 0.05 && (
-                                      <span className="text-amber-400 font-medium">
-                                        <strong>R.</strong> Retal de {totalSobrante.toFixed(2)}m (Guardar)
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        {/* 3. OPTIONAL 3D VIEWPORT PREVIEW INSIDE THE PDF */}
-                        {proyecto.threeDDataURL && (
-                          <div className="space-y-4 pt-4 border-t border-slate-800">
-                            <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 pb-1">
-                              Vista 3D del Cielo Raso (Modelo de Instalación)
-                            </h2>
-                            <div className="flex justify-center bg-slate-900/30 p-4 rounded-xl border border-slate-800/80">
-                              <img 
-                                src={proyecto.threeDDataURL} 
-                                className="max-w-[420px] max-h-[300px] object-contain rounded-lg shadow-lg border border-slate-800" 
-                                alt="Vista 3D del Cielo Raso" 
-                              />
+                                      {/* Draw canvas drawing for this room */}
+                                      <div className="flex justify-center w-full">
+                                        <RoomStaticCanvasHistory
+                                          espacio={espacio}
+                                          config={proyecto.pvcConfig}
+                                          resultadoConsolidado={opt}
+                                        />
+                                      </div>
+
+                                      {/* Room plan color legend inside the PDF */}
+                                      <div className="flex gap-3 justify-center text-[7.5px] text-slate-400 pb-0.5">
+                                        <div className="flex items-center gap-1">
+                                          <span className="w-2 h-2 rounded bg-indigo-600 border border-indigo-400"></span>
+                                          <span>Lámina Nueva</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <span className="w-2 h-2 rounded bg-emerald-600 border border-emerald-400"></span>
+                                          <span>Retal Reutilizado</span>
+                                        </div>
+                                      </div>
+
+                                      <div className="w-full grid grid-cols-2 gap-2 text-[9px] text-slate-555 border-t border-slate-850 pt-2">
+                                        <div>
+                                          <span>Forma: </span>
+                                          <span className="text-slate-350 capitalize">{espacio.tipo || 'rectangular'}</span>
+                                        </div>
+                                        <div>
+                                          <span>Área: </span>
+                                          <span className="text-slate-350">{espacio.ancho}m x {espacio.largo}m</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
-                        )}
+
+                          {/* Footer page marker */}
+                          <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-900 pt-3">
+                            <span>Generado con MaterialCalculator</span>
+                            <span>Página 1</span>
+                          </div>
+                        </div>
+
+                        {/* PAGE 2+: TECHNICAL CUTTING GUIDE FOR ALL SHEET BARS */}
+                        {laminasChunks.map((chunk, chunkIdx) => (
+                          <div
+                            key={chunkIdx}
+                            className="pdf-page bg-[#070b13] p-10 flex flex-col justify-between"
+                            style={{ width: '794px', height: '1122px', boxSizing: 'border-box', overflow: 'hidden' }}
+                          >
+                            <div>
+                              <div className="border-b border-slate-800 pb-3 mb-5 flex justify-between items-center">
+                                <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                                  Guía Técnica de Cortes de Fábrica (Taller) - Parte {chunkIdx + 1}
+                                </h2>
+                                <span className="text-[9px] text-slate-500">{proyecto.nombreProyecto}</span>
+                              </div>
+
+                              <div className="space-y-4">
+                                {chunk.map((lamina, index) => {
+                                  const globalIdx = chunkIdx * laminasChunkSize + index;
+                                  const totalUsado = lamina.cortes.reduce((acc: number, c: any) => acc + c.largo, 0);
+                                  const totalSobrante = parseFloat((proyecto.pvcConfig.largoComercial - totalUsado).toFixed(3));
+
+                                  return (
+                                    <div
+                                      key={lamina.id}
+                                      className="bg-slate-900/30 rounded-xl p-4 border border-slate-800/80 space-y-3"
+                                    >
+                                      <div className="flex items-center justify-between text-[10px] text-slate-400">
+                                        <span className="font-bold text-slate-200">Lámina de Fábrica #{globalIdx + 1} ({proyecto.pvcConfig.largoComercial.toFixed(2)}m)</span>
+                                        <span>Usado: {totalUsado.toFixed(2)}m / Sobrante: {totalSobrante.toFixed(2)}m</span>
+                                      </div>
+
+                                      {/* Visual cut bar */}
+                                      <div className="h-8 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
+                                        {lamina.cortes.map((corte: any) => {
+                                          const pct = (corte.largo / proyecto.pvcConfig.largoComercial) * 100;
+                                          const espacioIdx = proyecto.espacios.findIndex(e => e.id === corte.espacioId);
+                                          const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
+
+                                          return (
+                                            <div
+                                              key={corte.id}
+                                              style={{ width: `${pct}%` }}
+                                              className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
+                                            >
+                                              <span className="truncate w-full text-center">{corte.largo}m</span>
+                                              <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
+                                            </div>
+                                          );
+                                        })}
+
+                                        {totalSobrante > 0 && (
+                                          <div
+                                            style={{ width: `${(totalSobrante / proyecto.pvcConfig.largoComercial) * 100}%` }}
+                                            className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
+                                              totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-255' : 'bg-rose-950/30 text-rose-455/80'
+                                            }`}
+                                          >
+                                            <span>{totalSobrante}m</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Step list for this sheet */}
+                                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] text-slate-400 pt-2 border-t border-slate-850/40">
+                                        {lamina.cortes.map((corte: any, cIdx: number) => (
+                                          <span key={corte.id}>
+                                            <strong className="text-slate-350 font-bold">{cIdx + 1}.</strong> {corte.largo.toFixed(2)}m ({corte.espacioNombre})
+                                          </span>
+                                        ))}
+                                        {totalSobrante > 0.05 && (
+                                          <span className="text-amber-400 font-medium">
+                                            <strong>R.</strong> Retal de {totalSobrante.toFixed(2)}m (Guardar)
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-900 pt-3">
+                              <span>Optimización de Cortes</span>
+                              <span>Página {chunkIdx + 2}</span>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* PAGE 3+: 3D MODEL PREVIEWS OF ALL ROOMS */}
+                        {chunks3D.map((chunk, idx3D) => (
+                          <div
+                            key={idx3D}
+                            className="pdf-page bg-[#070b13] p-10 flex flex-col justify-between"
+                            style={{ width: '794px', height: '1122px', boxSizing: 'border-box', overflow: 'hidden' }}
+                          >
+                            <div>
+                              <div className="border-b border-slate-800 pb-3 mb-6 flex justify-between items-center">
+                                <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                                  Modelos 3D del Cielo Raso (Instalación) - Parte {idx3D + 1}
+                                </h2>
+                                <span className="text-[9px] text-slate-500">{proyecto.nombreProyecto}</span>
+                              </div>
+
+                              <div className="space-y-6 flex flex-col items-center">
+                                {chunk.map((espacio: Espacio) => (
+                                  <div key={espacio.id} className="w-full flex flex-col items-center bg-slate-900/20 border border-slate-800/80 rounded-2xl p-4 space-y-2">
+                                    <span className="text-xs font-bold text-slate-205">{espacio.nombre} (Vista 3D)</span>
+                                    <div className="w-full flex justify-center bg-slate-950/80 p-2 rounded-xl border border-slate-850">
+                                      <img 
+                                        src={espacio.threeDDataURL} 
+                                        className="w-[440px] h-[300px] object-contain rounded-lg shadow-xl" 
+                                        alt={`Vista 3D de ${espacio.nombre}`} 
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-900 pt-3">
+                              <span>Modelos 3D del Proyecto</span>
+                              <span>Página {laminasChunks.length + idx3D + 2}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
 

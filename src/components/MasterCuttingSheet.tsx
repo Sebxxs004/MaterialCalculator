@@ -12,7 +12,6 @@ interface MasterCuttingSheetProps {
   nombreProyecto: string;
   hoveredCorteId?: string | null;
   onHoverCorte?: (id: string | null) => void;
-  threeDImageActive?: string | null;
 }
 
 const SEGMENT_COLORS = [
@@ -254,16 +253,27 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
   nombreProyecto,
   hoveredCorteId = null,
   onHoverCorte = () => {},
-  threeDImageActive = null,
 }) => {
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [selectedSegmentInfo, setSelectedSegmentInfo] = useState<{ title: string; desc: string } | null>(null);
 
+  // Group commercial sheets in chunks of 4 to fit perfectly on A4 pages without split cuts
+  const laminasChunkSize = 4;
+  const laminasChunks: any[][] = [];
+  for (let i = 0; i < resultadoConsolidado.laminasComerciales.length; i += laminasChunkSize) {
+    laminasChunks.push(resultadoConsolidado.laminasComerciales.slice(i, i + laminasChunkSize));
+  }
+
+  // Group 3D room images in chunks of 2 to fit perfectly on A4 pages
+  const espaciosCon3D = espacios.filter(e => e.threeDDataURL);
+  const chunks3D: any[][] = [];
+  for (let i = 0; i < espaciosCon3D.length; i += 2) {
+    chunks3D.push(espaciosCon3D.slice(i, i + 2));
+  }
+
   const exportarReportePDF = async () => {
     setGenerandoPDF(true);
     
-    // Temporarily override the main window's getComputedStyle during html2canvas runtime.
-    // This is because html2canvas evaluates computed styles using the main window context.
     const originalGetComputedStyle = window.getComputedStyle;
     window.getComputedStyle = function (el, pseudoElt) {
       const style = originalGetComputedStyle.call(this || window, el, pseudoElt);
@@ -274,7 +284,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
             return val.bind(target);
           }
           if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
-            // Apply high-fidelity color conversion dynamically
             return val.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m))
                       .replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
           }
@@ -298,38 +307,38 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         return;
       }
 
-      const canvas = await html2canvas(rootElement, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#070b13',
-        onclone: (clonedDoc) => {
-          clonedDoc.querySelectorAll('style').forEach((styleEl) => {
-            let cssText = styleEl.textContent || '';
-            cssText = cssText.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m));
-            cssText = cssText.replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
-            styleEl.textContent = cssText;
-          });
+      const pages = rootElement.querySelectorAll('.pdf-page');
+      if (pages.length === 0) {
+        alert('Error: No se localizaron páginas en el reporte.');
+        window.getComputedStyle = originalGetComputedStyle;
+        setGenerandoPDF(false);
+        return;
+      }
+
+      for (let i = 0; i < pages.length; i++) {
+        const pageEl = pages[i] as HTMLElement;
+        const canvas = await html2canvas(pageEl, {
+          scale: 2.2,
+          useCORS: true,
+          backgroundColor: '#070b13',
+          onclone: (clonedDoc) => {
+            clonedDoc.querySelectorAll('style').forEach((styleEl) => {
+              let cssText = styleEl.textContent || '';
+              cssText = cssText.replace(/oklch\([^)]*\)/gi, (m) => oklchToRgb(m));
+              cssText = cssText.replace(/oklab\([^)]*\)/gi, (m) => oklabToRgb(m));
+              styleEl.textContent = cssText;
+            });
+          }
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const imgWidth = doc.internal.pageSize.getWidth();
+        const imgHeight = doc.internal.pageSize.getHeight();
+
+        if (i > 0) {
+          doc.addPage();
         }
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const imgWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      // Add first page
-      doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      // Multi-page handling
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        doc.addPage();
-        doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        doc.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
       }
 
       const safeName = nombreProyecto.replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -338,7 +347,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
       console.error(err);
       alert('Ocurrió un error al generar el PDF.');
     } finally {
-      // Restore original getComputedStyle
       window.getComputedStyle = originalGetComputedStyle;
       setGenerandoPDF(false);
     }
@@ -562,192 +570,247 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
       )}
 
       {/* DEDICATED OFFSCREEN MULTI-ROOM REPORT CONTAINER FOR PDF GENERATION */}
+      {/* Width: 794px. Each child ".pdf-page" has width: 794px and height: 1122px (Standard A4 at 96 DPI) */}
       <div
         id="main-pdf-export-root"
-        style={{ position: 'absolute', left: '-9999px', top: '0', width: '740px' }}
-        className="bg-[#070b13] p-8 text-slate-100 space-y-8 Outfit"
+        style={{ position: 'absolute', left: '-9999px', top: '0', width: '794px' }}
+        className="text-slate-100 Outfit"
       >
-        {/* Document Header Page */}
-        <div className="border-b border-slate-800 pb-5">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">Reporte Técnico de Optimización</h1>
-              <p className="text-xs text-indigo-400 font-semibold uppercase mt-0.5">MaterialCalculator - PVC Ceiling Specialist</p>
-            </div>
-            <div className="text-right text-[10px] text-slate-400">
-              <p>Proyecto: <span className="text-slate-200 font-semibold">{nombreProyecto}</span></p>
-              <p>Fecha: {new Date().toLocaleDateString()}</p>
-            </div>
-          </div>
-
-          {/* Project statistics summary grid */}
-          <div className="grid grid-cols-4 gap-4 mt-6">
-            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="block text-[10px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
-              <span className="text-lg font-bold text-slate-250 mt-1 block">{resultadoConsolidado.totalLaminas} piezas</span>
-            </div>
-            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="block text-[10px] font-bold text-slate-500 uppercase">Medida Comercial</span>
-              <span className="text-lg font-bold text-slate-250 mt-1 block">{pvcConfig.largoComercial.toFixed(2)}m x {pvcConfig.anchoUtil.toFixed(2)}m</span>
-            </div>
-            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="block text-[10px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
-              <span className="text-lg font-bold text-amber-400 mt-1 block">{resultadoConsolidado.desperdicioGlobalPorcentaje}%</span>
-            </div>
-            <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="block text-[10px] font-bold text-slate-500 uppercase">Presupuesto Estimado</span>
-              <span className="text-lg font-bold text-emerald-400 mt-1 block">
-                ${(resultadoConsolidado.totalLaminas * pvcConfig.precioPorLamina).toLocaleString('es-CO')}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 1. PLANS FOR ALL ROOMS IN THE PROJECT */}
-        <div className="space-y-4">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
-            Planos de Distribución y Cortes por Habitación
-          </h2>
-          
-          <div className="grid grid-cols-2 gap-6">
-            {espacios.map((espacio) => {
-              const desglose = resultadoConsolidado.desgloseEspacios.find(d => d.espacioId === espacio.id);
-              const orientacion = desglose?.orientacionElegida || 'largo';
-
-              return (
-                <div
-                  key={espacio.id}
-                  className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-4 flex flex-col items-center space-y-3"
-                >
-                  <div className="w-full flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-200">{espacio.nombre}</span>
-                    <span className="text-[10px] text-slate-400 capitalize">
-                      Tendido: {orientacion === 'largo' ? 'Paralelo al Largo' : 'Paralelo al Ancho'}
-                    </span>
-                  </div>
-
-                  {/* Draw canvas drawing for this room */}
-                  <div className="flex justify-center w-full">
-                    <RoomStaticCanvas
-                      espacio={espacio}
-                      config={pvcConfig}
-                      resultadoConsolidado={resultadoConsolidado}
-                    />
-                  </div>
-
-                  {/* Room plan color legend inside the PDF */}
-                  <div className="flex gap-4 justify-center text-[8px] text-slate-400 mt-0.5 pb-1">
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-indigo-600 border border-indigo-400"></span>
-                      <span>Lámina Nueva</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 border border-emerald-400"></span>
-                      <span>Retal Reutilizado</span>
-                    </div>
-                  </div>
-
-                  <div className="w-full grid grid-cols-2 gap-2 text-[10px] text-slate-400 border-t border-slate-800/40 pt-2">
-                    <div>
-                      <span>Forma: </span>
-                      <span className="text-slate-300 font-semibold capitalize">{espacio.tipo || 'rectangular'}</span>
-                    </div>
-                    <div>
-                      <span>Área estimada: </span>
-                      <span className="text-slate-300 font-semibold">{espacio.ancho}m x {espacio.largo}m</span>
-                    </div>
-                  </div>
+        {/* PAGE 1: HEADER, OVERVIEW AND 2D PLANS */}
+        <div 
+          className="pdf-page bg-[#070b13] p-10 flex flex-col justify-between"
+          style={{ width: '794px', height: '1122px', boxSizing: 'border-box', overflow: 'hidden' }}
+        >
+          <div>
+            {/* Header section */}
+            <div className="border-b border-slate-800 pb-5">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h1 className="text-2xl font-bold text-white tracking-tight">Reporte Técnico de Optimización</h1>
+                  <p className="text-xs text-indigo-400 font-semibold uppercase mt-0.5">MaterialCalculator - PVC Ceiling Specialist</p>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                <div className="text-right text-[10px] text-slate-400">
+                  <p>Proyecto: <span className="text-slate-200 font-semibold">{nombreProyecto}</span></p>
+                  <p>Fecha: {new Date().toLocaleDateString()}</p>
+                </div>
+              </div>
 
-        {/* 2. WORKSHOP CUTTING GUIDE FOR ALL SHEET BARS */}
-        <div className="space-y-4 pt-4">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
-            Guía Técnica de Cortes de Fábrica (Taller)
-          </h2>
+              {/* Project statistics summary grid */}
+              <div className="grid grid-cols-4 gap-4 mt-6">
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Láminas de Fábrica</span>
+                  <span className="text-base font-bold text-slate-200 mt-1 block">{resultadoConsolidado.totalLaminas} piezas</span>
+                </div>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Medida Comercial</span>
+                  <span className="text-sm font-bold text-slate-200 mt-1 block">{pvcConfig.largoComercial.toFixed(2)}m x {pvcConfig.anchoUtil.toFixed(2)}m</span>
+                </div>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Desperdicio Total</span>
+                  <span className="text-base font-bold text-amber-400 mt-1 block">{resultadoConsolidado.desperdicioGlobalPorcentaje}%</span>
+                </div>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <span className="block text-[9px] font-bold text-slate-500 uppercase">Presupuesto Estimado</span>
+                  <span className="text-base font-bold text-emerald-400 mt-1 block">
+                    ${(resultadoConsolidado.totalLaminas * pvcConfig.precioPorLamina).toLocaleString('es-CO')}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-          <div className="space-y-4">
-            {resultadoConsolidado.laminasComerciales.map((lamina, index) => {
-              const totalUsado = lamina.cortes.reduce((acc, c) => acc + c.largo, 0);
-              const totalSobrante = parseFloat((pvcConfig.largoComercial - totalUsado).toFixed(3));
+            {/* 1. PLANS FOR ALL ROOMS IN THE PROJECT */}
+            <div className="space-y-4 mt-6">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 border-b border-indigo-500/20 pb-1">
+                Planos de Distribución y Cortes por Habitación
+              </h2>
+              
+              <div className="grid grid-cols-2 gap-5">
+                {espacios.slice(0, 4).map((espacio) => {
+                  const desglose = resultadoConsolidado.desgloseEspacios.find(d => d.espacioId === espacio.id);
+                  const orientacion = desglose?.orientacionElegida || 'largo';
 
-              return (
-                <div
-                  key={lamina.id}
-                  className="bg-slate-900/30 rounded-xl p-3.5 border border-slate-800/80 space-y-2.5"
-                >
-                  <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span className="font-bold text-slate-200">Lámina de Fábrica #{index + 1} ({pvcConfig.largoComercial.toFixed(2)}m)</span>
-                    <span>Usado: {totalUsado.toFixed(2)}m / Sobrante: {totalSobrante.toFixed(2)}m</span>
-                  </div>
-
-                  {/* Visual cut bar */}
-                  <div className="h-7 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
-                    {lamina.cortes.map((corte) => {
-                      const pct = (corte.largo / pvcConfig.largoComercial) * 100;
-                      const espacioIdx = espacios.findIndex(e => e.id === corte.espacioId);
-                      const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
-
-                      return (
-                        <div
-                          key={corte.id}
-                          style={{ width: `${pct}%` }}
-                          className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
-                        >
-                          <span className="truncate w-full text-center">{corte.largo}m</span>
-                          <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
-                        </div>
-                      );
-                    })}
-
-                    {totalSobrante > 0 && (
-                      <div
-                        style={{ width: `${(totalSobrante / pvcConfig.largoComercial) * 100}%` }}
-                        className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
-                          totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-200' : 'bg-rose-950/30 text-rose-400/80'
-                        }`}
-                      >
-                        <span>{totalSobrante}m</span>
+                  return (
+                    <div
+                      key={espacio.id}
+                      className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-3.5 flex flex-col items-center space-y-2.5"
+                    >
+                      <div className="w-full flex justify-between items-center text-xs">
+                        <span className="font-bold text-slate-200 truncate max-w-[120px]">{espacio.nombre}</span>
+                        <span className="text-[9px] text-slate-400 capitalize">
+                          Tendido: {orientacion === 'largo' ? 'Largo' : 'Ancho'}
+                        </span>
                       </div>
-                    )}
-                  </div>
 
-                  {/* Step list for this sheet */}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] text-slate-400 pt-1.5 border-t border-slate-800/20">
-                    {lamina.cortes.map((corte, cIdx) => (
-                      <span key={corte.id}>
-                        <strong className="text-slate-300 font-bold">{cIdx + 1}.</strong> {corte.largo.toFixed(2)}m ({corte.espacioNombre})
-                      </span>
-                    ))}
-                    {totalSobrante > 0.05 && (
-                      <span className="text-amber-400 font-medium">
-                        <strong>R.</strong> Retal de {totalSobrante.toFixed(2)}m (Guardar)
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        {/* 3. OPTIONAL 3D VIEWPORT PREVIEW INSIDE THE PDF */}
-        {threeDImageActive && (
-          <div className="space-y-4 pt-4 border-t border-slate-800">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 pb-1">
-              Vista 3D del Cielo Raso (Modelo de Instalación)
-            </h2>
-            <div className="flex justify-center bg-slate-900/30 p-4 rounded-xl border border-slate-800/80">
-              <img 
-                src={threeDImageActive} 
-                className="max-w-[420px] max-h-[300px] object-contain rounded-lg shadow-lg border border-slate-800" 
-                alt="Vista 3D del Cielo Raso" 
-              />
+                      {/* Draw canvas drawing for this room */}
+                      <div className="flex justify-center w-full">
+                        <RoomStaticCanvas
+                          espacio={espacio}
+                          config={pvcConfig}
+                          resultadoConsolidado={resultadoConsolidado}
+                        />
+                      </div>
+
+                      {/* Room plan color legend inside the PDF */}
+                      <div className="flex gap-3 justify-center text-[7.5px] text-slate-400 pb-0.5">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded bg-indigo-600 border border-indigo-400"></span>
+                          <span>Lámina Nueva</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded bg-emerald-600 border border-emerald-400"></span>
+                          <span>Retal Reutilizado</span>
+                        </div>
+                      </div>
+
+                      <div className="w-full grid grid-cols-2 gap-2 text-[9px] text-slate-500 border-t border-slate-800/45 pt-2">
+                        <div>
+                          <span>Forma: </span>
+                          <span className="text-slate-350 capitalize">{espacio.tipo || 'rectangular'}</span>
+                        </div>
+                        <div>
+                          <span>Área: </span>
+                          <span className="text-slate-350">{espacio.ancho}m x {espacio.largo}m</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        )}
+
+          {/* Footer page marker */}
+          <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-900 pt-3">
+            <span>Generado con MaterialCalculator</span>
+            <span>Página 1</span>
+          </div>
+        </div>
+
+        {/* PAGE 2+: TECHNICAL CUTTING GUIDE FOR ALL SHEET BARS */}
+        {laminasChunks.map((chunk, chunkIdx) => (
+          <div
+            key={chunkIdx}
+            className="pdf-page bg-[#070b13] p-10 flex flex-col justify-between"
+            style={{ width: '794px', height: '1122px', boxSizing: 'border-box', overflow: 'hidden' }}
+          >
+            <div>
+              <div className="border-b border-slate-800 pb-3 mb-5 flex justify-between items-center">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                  Guía Técnica de Cortes de Fábrica (Taller) - Parte {chunkIdx + 1}
+                </h2>
+                <span className="text-[9px] text-slate-500">{nombreProyecto}</span>
+              </div>
+
+              <div className="space-y-4">
+                {chunk.map((lamina, index) => {
+                  const globalIdx = chunkIdx * laminasChunkSize + index;
+                  const totalUsado = lamina.cortes.reduce((acc: number, c: any) => acc + c.largo, 0);
+                  const totalSobrante = parseFloat((pvcConfig.largoComercial - totalUsado).toFixed(3));
+
+                  return (
+                    <div
+                      key={lamina.id}
+                      className="bg-slate-900/30 rounded-xl p-4 border border-slate-800/80 space-y-3"
+                    >
+                      <div className="flex items-center justify-between text-[10px] text-slate-400">
+                        <span className="font-bold text-slate-200">Lámina de Fábrica #{globalIdx + 1} ({pvcConfig.largoComercial.toFixed(2)}m)</span>
+                        <span>Usado: {totalUsado.toFixed(2)}m / Sobrante: {totalSobrante.toFixed(2)}m</span>
+                      </div>
+
+                      {/* Visual cut bar */}
+                      <div className="h-8 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
+                        {lamina.cortes.map((corte: any) => {
+                          const pct = (corte.largo / pvcConfig.largoComercial) * 100;
+                          const espacioIdx = espacios.findIndex(e => e.id === corte.espacioId);
+                          const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
+
+                          return (
+                            <div
+                              key={corte.id}
+                              style={{ width: `${pct}%` }}
+                              className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
+                            >
+                              <span className="truncate w-full text-center">{corte.largo}m</span>
+                              <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
+                            </div>
+                          );
+                        })}
+
+                        {totalSobrante > 0 && (
+                          <div
+                            style={{ width: `${(totalSobrante / pvcConfig.largoComercial) * 100}%` }}
+                            className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
+                              totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-250' : 'bg-rose-950/30 text-rose-450/80'
+                            }`}
+                          >
+                            <span>{totalSobrante}m</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Step list for this sheet */}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] text-slate-400 pt-2 border-t border-slate-850/40">
+                        {lamina.cortes.map((corte: any, cIdx: number) => (
+                          <span key={corte.id}>
+                            <strong className="text-slate-350 font-bold">{cIdx + 1}.</strong> {corte.largo.toFixed(2)}m ({corte.espacioNombre})
+                          </span>
+                        ))}
+                        {totalSobrante > 0.05 && (
+                          <span className="text-amber-400 font-medium">
+                            <strong>R.</strong> Retal de {totalSobrante.toFixed(2)}m (Guardar)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-900 pt-3">
+              <span>Optimización de Cortes</span>
+              <span>Página {chunkIdx + 2}</span>
+            </div>
+          </div>
+        ))}
+
+        {/* PAGE 3+: 3D MODEL PREVIEWS OF ALL ROOMS */}
+        {chunks3D.map((chunk, idx3D) => (
+          <div
+            key={idx3D}
+            className="pdf-page bg-[#070b13] p-10 flex flex-col justify-between"
+            style={{ width: '794px', height: '1122px', boxSizing: 'border-box', overflow: 'hidden' }}
+          >
+            <div>
+              <div className="border-b border-slate-800 pb-3 mb-6 flex justify-between items-center">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                  Modelos 3D del Cielo Raso (Instalación) - Parte {idx3D + 1}
+                </h2>
+                <span className="text-[9px] text-slate-500">{nombreProyecto}</span>
+              </div>
+
+              <div className="space-y-6 flex flex-col items-center">
+                {chunk.map((espacio: Espacio) => (
+                  <div key={espacio.id} className="w-full flex flex-col items-center bg-slate-900/20 border border-slate-800/80 rounded-2xl p-4 space-y-2">
+                    <span className="text-xs font-bold text-slate-200">{espacio.nombre} (Vista 3D)</span>
+                    <div className="w-full flex justify-center bg-slate-950/80 p-2 rounded-xl border border-slate-850">
+                      <img 
+                        src={espacio.threeDDataURL} 
+                        className="w-[440px] h-[300px] object-contain rounded-lg shadow-xl" 
+                        alt={`Vista 3D de ${espacio.nombre}`} 
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-[9px] text-slate-500 border-t border-slate-900 pt-3">
+              <span>Modelos 3D del Proyecto</span>
+              <span>Página {laminasChunks.length + idx3D + 2}</span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

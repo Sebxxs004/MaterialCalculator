@@ -66,6 +66,15 @@ export default function App() {
   // 3D canvas snapshot state for PDF reporting
   const [threeDImageActive, setThreeDImageActive] = useState<string | null>(null);
 
+  const handle3DImageCapture = (dataUrl: string) => {
+    setThreeDImageActive(dataUrl);
+    if (espacioActivoId) {
+      setEspacios(prev =>
+        prev.map(e => e.id === espacioActivoId ? { ...e, threeDDataURL: dataUrl } : e)
+      );
+    }
+  };
+
   // Load history from IndexedDB on startup
   useEffect(() => {
     cargarHistorial();
@@ -319,7 +328,7 @@ export default function App() {
                       espacio={espacioActivo}
                       config={pvcConfig}
                       resultadoConsolidado={resultadoConsolidado}
-                      onCapture={setThreeDImageActive}
+                      onCapture={handle3DImageCapture}
                     />
                   )}
                 </div>
@@ -388,7 +397,6 @@ export default function App() {
               nombreProyecto={nombreProyecto}
               hoveredCorteId={hoveredCorteId}
               onHoverCorte={setHoveredCorteId}
-              threeDImageActive={threeDImageActive}
             />
           </section>
         )}

@@ -28,6 +28,9 @@ export interface Espacio {
   anchoInf?: number;
   profQuiebre?: number;
   posQuiebre?: 'inf_der' | 'inf_izq' | 'sup_der' | 'sup_izq';
+  
+  // 3D snapshot per room
+  threeDDataURL?: string;
 }
 
 export interface PiezaSobrante {
