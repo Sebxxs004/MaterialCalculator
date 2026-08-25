@@ -213,10 +213,13 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
     // Temporarily override the main window's getComputedStyle during html2canvas runtime.
     const originalGetComputedStyle = window.getComputedStyle;
     window.getComputedStyle = function (el, pseudoElt) {
-      const style = originalGetComputedStyle.call(window, el, pseudoElt);
+      const style = originalGetComputedStyle.call(this || window, el, pseudoElt);
       return new Proxy(style, {
         get(target, prop) {
-          const val = target[prop as any];
+          const val = Reflect.get(target, prop);
+          if (typeof val === 'function') {
+            return val.bind(target);
+          }
           if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
             return val
               .replace(/oklch\([^)]*\)/gi, '#475569')

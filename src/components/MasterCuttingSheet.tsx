@@ -182,10 +182,13 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
     // This is because html2canvas evaluates computed styles using the main window context.
     const originalGetComputedStyle = window.getComputedStyle;
     window.getComputedStyle = function (el, pseudoElt) {
-      const style = originalGetComputedStyle.call(window, el, pseudoElt);
+      const style = originalGetComputedStyle.call(this || window, el, pseudoElt);
       return new Proxy(style, {
         get(target, prop) {
-          const val = target[prop as any];
+          const val = Reflect.get(target, prop);
+          if (typeof val === 'function') {
+            return val.bind(target);
+          }
           if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
             return val
               .replace(/oklch\([^)]*\)/gi, '#475569')
