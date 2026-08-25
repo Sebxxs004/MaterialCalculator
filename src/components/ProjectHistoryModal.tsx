@@ -661,26 +661,32 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
                                           return (
                                             <div
                                               key={corte.id}
-                                              style={{ width: `${pct}%` }}
-                                              className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[10px] font-bold px-0.5 ${colorClass}`}
+                                              style={{ width: `${pct}%`, display: 'block', textAlign: 'center', paddingTop: '6px', boxSizing: 'border-box' }}
+                                              className={`h-full border-r border-slate-950/20 text-[10px] font-bold px-0.5 ${colorClass}`}
                                             >
-                                              <span className="truncate w-full text-center leading-tight">{corte.largo.toFixed(2)}m</span>
-                                              <span className="text-[7.5px] opacity-90 truncate w-full text-center leading-tight mt-0.5">{corte.espacioNombre}</span>
+                                              <div style={{ display: 'block', lineHeight: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {corte.largo.toFixed(2)}m
+                                              </div>
+                                              <div style={{ display: 'block', fontSize: '7.5px', lineHeight: '10px', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>
+                                                {corte.espacioNombre}
+                                              </div>
                                             </div>
                                           );
                                         })}
 
                                         {totalSobrante > 0 && (
                                           <div
-                                            style={{ width: `${(totalSobrante / proyecto.pvcConfig.largoComercial) * 100}%` }}
-                                            className={`h-full flex flex-col items-center justify-center text-[10px] font-semibold ${
+                                            style={{ width: `${(totalSobrante / proyecto.pvcConfig.largoComercial) * 100}%`, display: 'block', textAlign: 'center', paddingTop: '6px', boxSizing: 'border-box' }}
+                                            className={`h-full text-[10px] font-semibold ${
                                               totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-255' : 'bg-rose-950/30 text-rose-455/80'
                                             }`}
                                           >
-                                            <span className="leading-tight">{totalSobrante.toFixed(2)}m</span>
-                                            <span className="text-[7.5px] opacity-80 leading-tight mt-0.5">
+                                            <div style={{ display: 'block', lineHeight: '13px' }}>
+                                              {totalSobrante.toFixed(2)}m
+                                            </div>
+                                            <div style={{ display: 'block', fontSize: '7.5px', lineHeight: '10px', opacity: 0.8, marginTop: '1px' }}>
                                               {totalSobrante > 0.05 ? 'Retal' : 'Desp.'}
-                                            </span>
+                                            </div>
                                           </div>
                                         )}
                                       </div>
