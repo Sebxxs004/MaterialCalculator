@@ -53,6 +53,86 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         scale: 2,
         useCORS: true,
         backgroundColor: '#070b13', // Keep dark slate backdrop style
+        onclone: (clonedDoc) => {
+          // Inject HEX overrides for all Tailwind CSS variables in the cloned document
+          const style = clonedDoc.createElement('style');
+          style.innerHTML = `
+            :root {
+              --color-slate-50: #f8fafc !important;
+              --color-slate-100: #f1f5f9 !important;
+              --color-slate-200: #e2e8f0 !important;
+              --color-slate-300: #cbd5e1 !important;
+              --color-slate-400: #94a3b8 !important;
+              --color-slate-500: #64748b !important;
+              --color-slate-600: #475569 !important;
+              --color-slate-700: #334155 !important;
+              --color-slate-800: #1e293b !important;
+              --color-slate-900: #0f172a !important;
+              --color-slate-950: #020617 !important;
+
+              --color-indigo-50: #e0e7ff !important;
+              --color-indigo-100: #c7d2fe !important;
+              --color-indigo-400: #818cf8 !important;
+              --color-indigo-500: #6366f1 !important;
+              --color-indigo-600: #4f46e5 !important;
+              --color-indigo-700: #4338ca !important;
+
+              --color-violet-50: #f5f3ff !important;
+              --color-violet-100: #ede9fe !important;
+              --color-violet-400: #a78bfa !important;
+              --color-violet-500: #8b5cf6 !important;
+              --color-violet-600: #7c3aed !important;
+
+              --color-emerald-50: #ecfdf5 !important;
+              --color-emerald-100: #d1fae5 !important;
+              --color-emerald-400: #34d399 !important;
+              --color-emerald-500: #10b981 !important;
+              --color-emerald-600: #059669 !important;
+
+              --color-amber-50: #fffbeb !important;
+              --color-amber-100: #fef3c7 !important;
+              --color-amber-400: #fbbf24 !important;
+              --color-amber-500: #f59e0b !important;
+              --color-amber-600: #d97706 !important;
+
+              --color-pink-50: #fdf2f8 !important;
+              --color-pink-100: #fce7f3 !important;
+              --color-pink-400: #f472b6 !important;
+              --color-pink-500: #ec4899 !important;
+              --color-pink-600: #db2777 !important;
+
+              --color-cyan-50: #ecfeff !important;
+              --color-cyan-100: #cffafe !important;
+              --color-cyan-400: #22d3ee !important;
+              --color-cyan-500: #06b6d4 !important;
+              --color-cyan-600: #0891b2 !important;
+
+              --color-rose-50: #fff1f2 !important;
+              --color-rose-100: #ffe4e6 !important;
+              --color-rose-400: #fb7185 !important;
+              --color-rose-500: #f43f5e !important;
+              --color-rose-600: #e11d48 !important;
+            }
+          `;
+          clonedDoc.head.appendChild(style);
+
+          // Replace elements using direct oklch inline styles or attributes
+          const elements = clonedDoc.getElementsByTagName('*');
+          for (let i = 0; i < elements.length; i++) {
+            const el = elements[i] as HTMLElement;
+            if (el.style) {
+              const keys = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
+              keys.forEach((key) => {
+                const val = (el.style as any)[key];
+                if (val && val.includes('oklch')) {
+                  if (key === 'color') (el.style as any)[key] = '#cbd5e1';
+                  else if (key === 'backgroundColor') (el.style as any)[key] = '#1e293b';
+                  else (el.style as any)[key] = '#475569';
+                }
+              });
+            }
+          }
+        }
       });
 
       // Show export buttons again
