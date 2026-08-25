@@ -54,7 +54,15 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         useCORS: true,
         backgroundColor: '#070b13', // Keep dark slate backdrop style
         onclone: (clonedDoc) => {
-          // Inject HEX overrides for all Tailwind CSS variables in the cloned document
+          // 1. Clean oklch and oklab from all <style> blocks on the page
+          clonedDoc.querySelectorAll('style').forEach((styleEl) => {
+            let cssText = styleEl.textContent || '';
+            cssText = cssText.replace(/oklch\([^)]*\)/gi, '#475569');
+            cssText = cssText.replace(/oklab\([^)]*\)/gi, '#334155');
+            styleEl.textContent = cssText;
+          });
+
+          // 2. Inject HEX overrides for all Tailwind CSS variables in the cloned document
           const style = clonedDoc.createElement('style');
           style.innerHTML = `
             :root {
@@ -116,15 +124,20 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
           `;
           clonedDoc.head.appendChild(style);
 
-          // Replace elements using direct oklch inline styles or attributes
+          // 3. Replace element inline styles containing oklch or oklab
           const elements = clonedDoc.getElementsByTagName('*');
           for (let i = 0; i < elements.length; i++) {
             const el = elements[i] as HTMLElement;
             if (el.style) {
+              if (el.style.cssText && (el.style.cssText.includes('oklch') || el.style.cssText.includes('oklab'))) {
+                el.style.cssText = el.style.cssText
+                  .replace(/oklch\([^)]*\)/gi, '#475569')
+                  .replace(/oklab\([^)]*\)/gi, '#334155');
+              }
               const keys = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
               keys.forEach((key) => {
                 const val = (el.style as any)[key];
-                if (val && val.includes('oklch')) {
+                if (val && (val.includes('oklch') || val.includes('oklab'))) {
                   if (key === 'color') (el.style as any)[key] = '#cbd5e1';
                   else if (key === 'backgroundColor') (el.style as any)[key] = '#1e293b';
                   else (el.style as any)[key] = '#475569';
