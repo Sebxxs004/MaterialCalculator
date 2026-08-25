@@ -10,6 +10,8 @@ interface MasterCuttingSheetProps {
   espacios: Espacio[];
   pvcConfig: PVCConfig;
   nombreProyecto: string;
+  hoveredCorteId?: string | null;
+  onHoverCorte?: (id: string | null) => void;
 }
 
 const SEGMENT_COLORS = [
@@ -170,6 +172,8 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
   espacios,
   pvcConfig,
   nombreProyecto,
+  hoveredCorteId = null,
+  onHoverCorte = () => {},
 }) => {
   const [generandoPDF, setGenerandoPDF] = useState(false);
 
@@ -182,7 +186,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         format: 'a4',
       });
 
-      // Target the complete multi-room printable container
       const rootElement = document.getElementById('main-pdf-export-root');
       if (!rootElement) {
         alert('Error: No se pudo localizar el contenedor del reporte.');
@@ -195,7 +198,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         useCORS: true,
         backgroundColor: '#070b13',
         onclone: (clonedDoc) => {
-          // 1. Clean oklch and oklab from all style blocks on the page
           clonedDoc.querySelectorAll('style').forEach((styleEl) => {
             let cssText = styleEl.textContent || '';
             cssText = cssText.replace(/oklch\([^)]*\)/gi, '#475569');
@@ -203,7 +205,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
             styleEl.textContent = cssText;
           });
 
-          // 2. Inject HEX overrides for all Tailwind CSS variables
           const style = clonedDoc.createElement('style');
           style.innerHTML = `
             :root {
@@ -265,7 +266,6 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
           `;
           clonedDoc.head.appendChild(style);
 
-          // 3. Replace inline styles containing oklch or oklab
           const elements = clonedDoc.getElementsByTagName('*');
           for (let i = 0; i < elements.length; i++) {
             const el = elements[i] as HTMLElement;
@@ -385,12 +385,20 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                   const pct = (corte.largo / pvcConfig.largoComercial) * 100;
                   const espacioIdx = espacios.findIndex(e => e.id === corte.espacioId);
                   const colorClass = SEGMENT_COLORS[espacioIdx % SEGMENT_COLORS.length] || 'bg-indigo-600';
+                  
+                  const isHovered = corte.id === hoveredCorteId;
 
                   return (
                     <div
                       key={corte.id}
                       style={{ width: `${pct}%` }}
-                      className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[10px] font-bold px-1 transition-all hover:brightness-105 select-none ${colorClass}`}
+                      onMouseEnter={() => onHoverCorte(corte.id)}
+                      onMouseLeave={() => onHoverCorte(null)}
+                      className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[10px] font-bold px-1 transition-all select-none cursor-pointer duration-150 ${
+                        isHovered 
+                          ? 'scale-y-110 ring-2 ring-amber-400 brightness-125 z-10 font-black shadow-lg shadow-amber-500/20' 
+                          : 'hover:brightness-105'
+                      } ${colorClass}`}
                     >
                       <span className="truncate w-full text-center">{corte.largo}m</span>
                       <span className="text-[7.5px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
@@ -409,7 +417,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
                   >
                     <span>{totalSobrante}m</span>
                     <span className="text-[7.5px] opacity-75">
-                      {totalSobrante > 0.05 ? 'Retal Reutilizable' : 'Desperdicio'}
+                      {totalSobrante > 0.05 ? 'Retal' : 'Desp.'}
                     </span>
                   </div>
                 )}
@@ -417,20 +425,31 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
 
               {/* Cut checklist instructions for operators */}
               <div className="mt-3.5 pt-3 border-t border-slate-800/60 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {lamina.cortes.map((corte, cIdx) => (
-                  <div
-                    key={corte.id}
-                    className="flex items-center gap-2 text-xs bg-slate-950/40 p-2 rounded-lg border border-slate-800/40"
-                  >
-                    <span className="w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-[10px]">
-                      {cIdx + 1}
-                    </span>
-                    <div>
-                      <p className="text-slate-300 font-medium">Corte de {corte.largo.toFixed(2)}m</p>
-                      <p className="text-[10px] text-slate-500">Destino: {corte.espacioNombre} (Hilera {corte.hileraIndex + 1})</p>
+                {lamina.cortes.map((corte, cIdx) => {
+                  const isHovered = corte.id === hoveredCorteId;
+                  return (
+                    <div
+                      key={corte.id}
+                      onMouseEnter={() => onHoverCorte(corte.id)}
+                      onMouseLeave={() => onHoverCorte(null)}
+                      className={`flex items-center gap-2 text-xs p-2 rounded-lg border transition-all cursor-pointer duration-150 ${
+                        isHovered
+                          ? 'border-indigo-500/80 bg-indigo-950/40 ring-1 ring-indigo-500 scale-[1.03] shadow-md shadow-indigo-500/10'
+                          : 'bg-slate-950/40 border-slate-800/40 hover:border-slate-700/50'
+                      }`}
+                    >
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] transition-all ${
+                        isHovered ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {cIdx + 1}
+                      </span>
+                      <div>
+                        <p className="text-slate-300 font-medium">Corte de {corte.largo.toFixed(2)}m</p>
+                        <p className="text-[10px] text-slate-500">Destino: {corte.espacioNombre} (Hilera {corte.hileraIndex + 1})</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 
                 {totalSobrante > 0.05 && (
                   <div className="flex items-center gap-2 text-xs bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
@@ -449,10 +468,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
         })}
       </div>
 
-      {/* 
-        DEDICATED OFFSCREEN MULTI-ROOM REPORT CONTAINER FOR PDF GENERATION ONLY.
-        This contains the layout of ALL rooms and plans in the project, plus the cutting guide.
-      */}
+      {/* DEDICATED OFFSCREEN MULTI-ROOM REPORT CONTAINER FOR PDF GENERATION */}
       <div
         id="main-pdf-export-root"
         style={{ position: 'absolute', left: '-9999px', top: '0', width: '740px' }}
@@ -504,6 +520,7 @@ export const MasterCuttingSheet: React.FC<MasterCuttingSheetProps> = ({
             {espacios.map((espacio) => {
               const desglose = resultadoConsolidado.desgloseEspacios.find(d => d.espacioId === espacio.id);
               const orientacion = desglose?.orientacionElegida || 'largo';
+
               return (
                 <div
                   key={espacio.id}

@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import type { PVCConfig, Espacio, ProyectoGuardado, ResultadoConsolidado, Orientacion } from './types/material';
+import type { PVCConfig, Espacio, ResultadoConsolidado, ProyectoGuardado } from './types/material';
 import { projectStorageService } from './services/projectStorageService';
 import { pvcOptimizerEngine } from './helpers/pvcOptimizerEngine';
 import { PVCConfigForm } from './components/PVCConfigForm';
 import { EspaciosForm } from './components/EspaciosForm';
 import { HistorialProyectos } from './components/HistorialProyectos';
-import { RoomCanvasVisualizer } from './components/RoomCanvasVisualizer';
-import type { RoomCanvasVisualizerRef } from './components/RoomCanvasVisualizer';
+import { RoomCanvasVisualizer, type RoomCanvasVisualizerRef } from './components/RoomCanvasVisualizer';
 import { Room3DViewer } from './components/Room3DViewer';
 import { MasterCuttingSheet } from './components/MasterCuttingSheet';
 import { ProjectHistoryModal } from './components/ProjectHistoryModal';
@@ -57,6 +56,9 @@ export default function App() {
 
   // Consolidated Optimizer Result
   const [resultadoConsolidado, setResultadoConsolidado] = useState<ResultadoConsolidado | null>(null);
+
+  // Cross-highlight state between Canvas 2D and cutting list
+  const [hoveredCorteId, setHoveredCorteId] = useState<string | null>(null);
 
   // Ref for Room Canvas Visualizer Component
   const visualizerRef = useRef<RoomCanvasVisualizerRef | null>(null);
@@ -109,104 +111,111 @@ export default function App() {
 
   const cargarProyecto = (proyecto: ProyectoGuardado) => {
     try {
-      const data = JSON.parse(proyecto.estadoJSON);
-      setEspacios(data.espacios || proyecto.espacios);
-      setPvcConfig(data.pvcConfig || proyecto.pvcConfig);
-      setNombreProyecto(data.nombreProyecto || proyecto.nombreProyecto);
-      setCliente(data.cliente || proyecto.cliente);
+      const raw = JSON.parse(proyecto.estadoJSON);
+      setEspacios(raw.espacios);
+      setPvcConfig(raw.pvcConfig);
+      setNombreProyecto(raw.nombreProyecto);
+      setCliente(raw.cliente);
       setProyectoActivoId(proyecto.id);
-      setIsHistoryModalOpen(false);
-      if (proyecto.espacios.length > 0) {
-        setEspacioActivoId(proyecto.espacios[0].id);
+      if (raw.espacios.length > 0) {
+        setEspacioActivoId(raw.espacios[0].id);
       }
-    } catch {
+      setIsHistoryModalOpen(false);
+    } catch (err) {
+      console.error('Error al decodificar el estado del proyecto', err);
+      // Fallback a propiedades raíz si no tiene backup JSON
       setEspacios(proyecto.espacios);
       setPvcConfig(proyecto.pvcConfig);
       setNombreProyecto(proyecto.nombreProyecto);
       setCliente(proyecto.cliente);
       setProyectoActivoId(proyecto.id);
-      setIsHistoryModalOpen(false);
       if (proyecto.espacios.length > 0) {
         setEspacioActivoId(proyecto.espacios[0].id);
       }
+      setIsHistoryModalOpen(false);
     }
   };
 
   const eliminarProyecto = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este proyecto del historial?')) return;
-    try {
-      await projectStorageService.eliminarProyecto(id);
-      if (proyectoActivoId === id) {
-        setProyectoActivoId(undefined);
+    if (confirm('¿Estás seguro de que deseas eliminar este proyecto de la base de datos?')) {
+      try {
+        await projectStorageService.eliminarProyecto(id);
+        if (proyectoActivoId === id) {
+          iniciarNuevoProyecto();
+        }
+        await cargarHistorial();
+      } catch (err) {
+        console.error(err);
       }
-      await cargarHistorial();
-    } catch (err) {
-      console.error(err);
     }
   };
 
   const iniciarNuevoProyecto = () => {
-    setNombreProyecto('Proyecto Nuevo');
-    setCliente('Cliente Nuevo');
+    setNombreProyecto('Proyecto PVC Centro');
+    setCliente('Cliente Particular');
     setProyectoActivoId(undefined);
     setPvcConfig(DEFAULT_PVC_CONFIG);
-    setEspacios([DEFAULT_ESPACIO]);
-    setEspacioActivoId(DEFAULT_ESPACIO.id);
+    const id = crypto.randomUUID();
+    const nuevoEspacio = { ...DEFAULT_ESPACIO, id };
+    setEspacios([nuevoEspacio]);
+    setEspacioActivoId(id);
+    setHoveredCorteId(null);
   };
 
-  const totalLaminasProyecto = resultadoConsolidado?.totalLaminas || 0;
-  const costoTotalProyecto = totalLaminasProyecto * pvcConfig.precioPorLamina;
-
-  const espacioActivo = espacios.find(e => e.id === espacioActivoId) || espacios[0];
-
-  const handleOrientacionChange = (nuevaOrientacion: Orientacion) => {
+  const handleOrientacionChange = (nuevaOrientacion: 'auto' | 'largo' | 'ancho') => {
     setEspacios(
-      espacios.map((e) =>
-        e.id === espacioActivoId ? { ...e, orientacionSeleccionada: nuevaOrientacion } : e
+      espacios.map((esp) => 
+        esp.id === espacioActivoId 
+          ? { ...esp, orientacionSeleccionada: nuevaOrientacion } 
+          : esp
       )
     );
   };
 
+  const espacioActivo = espacios.find(e => e.id === espacioActivoId) || espacios[0];
+
+  // General project totals
+  const totalLaminasProyecto = resultadoConsolidado ? resultadoConsolidado.totalLaminas : 0;
+  const costoTotalProyecto = totalLaminasProyecto * pvcConfig.precioPorLamina;
+
   return (
-    <div className="min-h-screen bg-[#070b13] text-slate-100 flex flex-col font-sans">
-      {/* Top Navigation */}
-      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+    <div className="min-h-screen bg-[#070b13] text-slate-100 flex flex-col font-sans Outfit selection:bg-indigo-600/30 selection:text-indigo-200">
+      
+      {/* Premium Gradient Header Block */}
+      <header className="bg-slate-900/40 border-b border-slate-800/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          {/* Brand Logo and Title */}
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl text-white shadow-lg shadow-indigo-500/20">
-              <Calculator className="w-6 h-6" />
+            <div className="p-3 bg-gradient-to-tr from-indigo-600 to-violet-600 rounded-2xl shadow-lg shadow-indigo-500/20">
+              <Calculator className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-slate-50 to-indigo-200 bg-clip-text text-transparent">
+              <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
                 MaterialCalculator
               </h1>
-              <p className="text-xs text-slate-400">Optimizador e Instalación de Cielo Raso PVC (Completo)</p>
+              <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mt-0.5">Optimización de Cielo Raso PVC</p>
             </div>
           </div>
 
-          {/* Project Details Fields */}
-          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <div className="relative flex-1 md:flex-none">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
-                <FolderDot className="w-4 h-4" />
-              </span>
+          {/* Project Details Inline Editor */}
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+            <div className="relative">
+              <FolderDot className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={nombreProyecto}
                 onChange={(e) => setNombreProyecto(e.target.value)}
                 placeholder="Nombre del Proyecto"
-                className="w-full md:w-56 rounded-xl border border-slate-800 bg-slate-900/60 pl-9 pr-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full md:w-48 rounded-xl border border-slate-800 bg-slate-900/60 pl-9 pr-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
-            <div className="relative flex-1 md:flex-none">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
-                <User className="w-4 h-4" />
-              </span>
+            <div className="relative">
+              <User className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
-                placeholder="Cliente"
+                placeholder="Nombre Cliente"
                 className="w-full md:w-48 rounded-xl border border-slate-800 bg-slate-900/60 pl-9 pr-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
@@ -298,6 +307,8 @@ export default function App() {
                       config={pvcConfig}
                       resultadoConsolidado={resultadoConsolidado}
                       onOrientacionChange={handleOrientacionChange}
+                      hoveredCorteId={hoveredCorteId}
+                      onHoverCorte={setHoveredCorteId}
                     />
                   ) : (
                     <Room3DViewer
@@ -370,6 +381,8 @@ export default function App() {
               espacios={espacios}
               pvcConfig={pvcConfig}
               nombreProyecto={nombreProyecto}
+              hoveredCorteId={hoveredCorteId}
+              onHoverCorte={setHoveredCorteId}
             />
           </section>
         )}

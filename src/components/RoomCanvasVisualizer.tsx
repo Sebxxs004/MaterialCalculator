@@ -8,6 +8,8 @@ interface RoomCanvasVisualizerProps {
   config: PVCConfig;
   resultadoConsolidado: ResultadoConsolidado | null;
   onOrientacionChange: (nuevaOrientacion: Orientacion) => void;
+  hoveredCorteId: string | null;
+  onHoverCorte: (id: string | null) => void;
 }
 
 export interface RoomCanvasVisualizerRef {
@@ -15,7 +17,7 @@ export interface RoomCanvasVisualizerRef {
 }
 
 export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanvasVisualizerProps>(
-  ({ espacio, config, resultadoConsolidado, onOrientacionChange }, ref) => {
+  ({ espacio, config, resultadoConsolidado, onOrientacionChange, hoveredCorteId, onHoverCorte }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
     // Expose capture snapshot function to parent components
@@ -28,17 +30,10 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
 
     useEffect(() => {
       draw();
-    }, [espacio, config, resultadoConsolidado]);
+    }, [espacio, config, resultadoConsolidado, hoveredCorteId]);
 
-    const draw = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
+    const getDrawingParameters = (canvas: HTMLCanvasElement) => {
       const vertices = obtenerVerticesDeEspacio(espacio);
-      
-      // Calculate Bounding Box of Room vertices
       const xs = vertices.map(v => v.x);
       const ys = vertices.map(v => v.y);
       const minX = Math.min(...xs);
@@ -49,32 +44,32 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
       const ancho = maxX - minX;
       const largo = maxY - minY;
 
-      // 1. Clear background
-      ctx.fillStyle = '#0f172a'; // Deep slate
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // 2. Scale & Center calculations
       const padding = 60;
       const drawAreaW = canvas.width - padding * 2;
       const drawAreaH = canvas.height - padding * 2;
-      const scale = Math.min(drawAreaW / ancho, drawAreaH / largo);
+      const scale = Math.min(drawAreaW / (ancho || 1), drawAreaH / (largo || 1));
 
       const w = ancho * scale;
       const h = largo * scale;
       const startX = (canvas.width - w) / 2;
       const startY = (canvas.height - h) / 2;
 
-      // Determine orientation
-      let orientacionEfectiva = espacio.orientacionSeleccionada;
-      if (orientacionEfectiva === 'auto' && resultadoConsolidado) {
-        const desglose = resultadoConsolidado.desgloseEspacios.find(d => d.espacioId === espacio.id);
-        orientacionEfectiva = desglose?.orientacionElegida || 'largo';
-      }
-      if (orientacionEfectiva === 'auto') {
-        orientacionEfectiva = 'largo';
-      }
+      return { vertices, minX, minY, scale, startX, startY };
+    };
 
-      // 3. Draw Room cuts and sheets (Polygons)
+    const draw = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const { vertices, minX, minY, scale, startX, startY } = getDrawingParameters(canvas);
+
+      // 1. Clear background
+      ctx.fillStyle = '#0f172a'; // Deep slate
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 2. Draw Room cuts and sheets (Polygons)
       ctx.save();
       // Clip inside room boundaries
       ctx.beginPath();
@@ -105,20 +100,26 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
           // Color coding
           let fillStyle = 'rgba(99, 102, 241, 0.4)'; // Default Soft Blue (New)
           let strokeStyle = 'rgba(129, 140, 248, 0.8)';
+          let lineWidth = 1;
           
           if (corte.isShared && !corte.isFirstInLamina) {
-            // Reused leftover from another space (Green)
             fillStyle = 'rgba(16, 185, 129, 0.45)';
             strokeStyle = 'rgba(52, 211, 153, 0.8)';
           } else if (corte.largo < 1.5 && !corte.isShared) {
-            // Small joint leftover/cutoff (Orange)
             fillStyle = 'rgba(245, 158, 11, 0.45)';
             strokeStyle = 'rgba(251, 191, 36, 0.8)';
           }
 
+          // Shading effect on Hover
+          if (corte.id === hoveredCorteId) {
+            fillStyle = 'rgba(255, 255, 255, 0.75)'; // White highlight
+            strokeStyle = '#ffffff'; // White border
+            lineWidth = 2.5;
+          }
+
           ctx.fillStyle = fillStyle;
           ctx.strokeStyle = strokeStyle;
-          ctx.lineWidth = 1;
+          ctx.lineWidth = lineWidth;
 
           // Draw the irregular cut polygon
           corte.poligonoRecortado.forEach((ring) => {
@@ -139,7 +140,7 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
 
       ctx.restore();
 
-      // 4. Draw outer border of room (Muros)
+      // 3. Draw outer border of room (Muros)
       ctx.strokeStyle = '#4f46e5';
       ctx.lineWidth = 3.5;
       ctx.beginPath();
@@ -152,7 +153,7 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
       ctx.closePath();
       ctx.stroke();
 
-      // 5. Draw dimensions / annotations (Cotas y Medidas en los Muros)
+      // 4. Draw dimensions / annotations
       ctx.fillStyle = '#94a3b8';
       ctx.font = 'bold 10px Outfit, sans-serif';
       ctx.textAlign = 'center';
@@ -162,25 +163,78 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
         const v2 = vertices[(idx + 1) % vertices.length];
         const dist = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
 
-        if (dist < 0.1) return; // Skip extremely small wall segments
+        if (dist < 0.1) return;
 
-        // Midpoint on canvas
         const mx = startX + ((v1.x + v2.x) / 2 - minX) * scale;
         const my = startY + ((v1.y + v2.y) / 2 - minY) * scale;
 
-        // Bending direction normal to place label outside room walls
         const dx = v2.x - v1.x;
         const dy = v2.y - v1.y;
         const len = Math.sqrt(dx * dx + dy * dy);
-        const nx = -dy / len; 
-        const ny = dx / len;
+        const nx = -dy / (len || 1); 
+        const ny = dx / (len || 1);
 
-        // Offset text position outside the wall segment
         const tx = mx + nx * 14;
         const ty = my + ny * 14;
 
         ctx.fillText(`${dist.toFixed(2)} m`, tx, ty);
       });
+    };
+
+    const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas || !resultadoConsolidado) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = (event.clientX - rect.left) * (canvas.width / rect.width);
+      const mouseY = (event.clientY - rect.top) * (canvas.height / rect.height);
+
+      const { minX, minY, scale, startX, startY } = getDrawingParameters(canvas);
+
+      // Find all cuts belonging to this space
+      const cortesEspacio = resultadoConsolidado.laminasComerciales.flatMap(lamina =>
+        lamina.cortes.filter(c => c.espacioId === espacio.id)
+      );
+
+      let foundId: string | null = null;
+
+      for (const corte of cortesEspacio) {
+        if (!corte.poligonoRecortado) continue;
+        let inside = false;
+
+        for (const ring of corte.poligonoRecortado) {
+          if (ring.length < 3) continue;
+
+          ctx.beginPath();
+          ring.forEach((pt, idx) => {
+            const px = startX + (pt[0] - minX) * scale;
+            const py = startY + (pt[1] - minY) * scale;
+            if (idx === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+          ctx.closePath();
+
+          if (ctx.isPointInPath(mouseX, mouseY)) {
+            inside = true;
+            break;
+          }
+        }
+
+        if (inside) {
+          foundId = corte.id;
+          break;
+        }
+      }
+
+      if (foundId !== hoveredCorteId) {
+        onHoverCorte(foundId);
+      }
+    };
+
+    const handleMouseLeave = () => {
+      onHoverCorte(null);
     };
 
     const toggleOrientacion = () => {
@@ -224,7 +278,9 @@ export const RoomCanvasVisualizer = forwardRef<RoomCanvasVisualizerRef, RoomCanv
             ref={canvasRef}
             width={340}
             height={340}
-            className="w-full h-full object-contain"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            className="w-full h-full object-contain cursor-crosshair"
           />
         </div>
 
