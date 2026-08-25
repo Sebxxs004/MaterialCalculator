@@ -5,6 +5,7 @@ export interface PVCConfig {
 }
 
 export type Orientacion = 'auto' | 'largo' | 'ancho';
+export type TipoEspacio = 'rectangular' | 'l_shape' | 'polygon';
 
 export interface Espacio {
   id: string;
@@ -12,6 +13,14 @@ export interface Espacio {
   largo: number; // in meters
   ancho: number; // in meters
   orientacionSeleccionada: Orientacion;
+  
+  // Phase 7 Irregular Spaces
+  tipo?: TipoEspacio;
+  vertices?: { x: number; y: number }[];
+  largoA?: number;
+  largoB?: number;
+  anchoA?: number;
+  anchoB?: number;
 }
 
 export interface PiezaSobrante {
@@ -44,6 +53,9 @@ export interface CorteOptimo {
   espacioId: string;
   espacioNombre: string;
   hileraIndex: number;
+  
+  // Phase 7 Irregular geometry cuts polygon
+  poligonoRecortado?: [number, number][][]; 
 }
 
 export interface LaminaComercialOptimizada {
