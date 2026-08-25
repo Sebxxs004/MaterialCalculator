@@ -5,7 +5,7 @@ export interface PVCConfig {
 }
 
 export type Orientacion = 'auto' | 'largo' | 'ancho';
-export type TipoEspacio = 'rectangular' | 'l_shape' | 'polygon';
+export type TipoEspacio = 'rectangular' | 'l_shape' | 'polygon' | 'mocheta';
 
 export interface Espacio {
   id: string;
@@ -14,13 +14,20 @@ export interface Espacio {
   ancho: number; // in meters
   orientacionSeleccionada: Orientacion;
   
-  // Phase 7 Irregular Spaces
+  // Phase 7 & 8 Irregular Spaces
   tipo?: TipoEspacio;
   vertices?: { x: number; y: number }[];
   largoA?: number;
   largoB?: number;
   anchoA?: number;
   anchoB?: number;
+
+  // Mocheta / Cutout Preset details
+  anchoSup?: number;
+  largoIzq?: number;
+  anchoInf?: number;
+  profQuiebre?: number;
+  posQuiebre?: 'inf_der' | 'inf_izq' | 'sup_der' | 'sup_izq';
 }
 
 export interface PiezaSobrante {
@@ -65,6 +72,7 @@ export interface LaminaComercialOptimizada {
 }
 
 export interface DesgloseEspacio {
+  spaceId?: string; // fallback matching if needed
   espacioId: string;
   espacioNombre: string;
   orientacionElegida: 'largo' | 'ancho';

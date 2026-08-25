@@ -25,6 +25,54 @@ export function obtenerVerticesDeEspacio(espacio: Espacio): { x: number; y: numb
       { x: 0, y: l }
     ];
   }
+
+  if (tipo === 'mocheta') {
+    const wSup = espacio.anchoSup !== undefined ? espacio.anchoSup : 2.50;
+    const lIzq = espacio.largoIzq !== undefined ? espacio.largoIzq : 2.60;
+    const wInf = espacio.anchoInf !== undefined ? espacio.anchoInf : 1.70;
+    const dQ = espacio.profQuiebre !== undefined ? espacio.profQuiebre : 0.40;
+    const pos = espacio.posQuiebre || 'inf_der';
+
+    if (pos === 'inf_der') {
+      return [
+        { x: 0, y: 0 },
+        { x: wSup, y: 0 },
+        { x: wSup, y: lIzq - dQ },
+        { x: wInf, y: lIzq - dQ },
+        { x: wInf, y: lIzq },
+        { x: 0, y: lIzq }
+      ];
+    } else if (pos === 'inf_izq') {
+      const cutoutW = wSup - wInf;
+      return [
+        { x: 0, y: 0 },
+        { x: wSup, y: 0 },
+        { x: wSup, y: lIzq },
+        { x: cutoutW, y: lIzq },
+        { x: cutoutW, y: lIzq - dQ },
+        { x: 0, y: lIzq - dQ }
+      ];
+    } else if (pos === 'sup_der') {
+      return [
+        { x: 0, y: 0 },
+        { x: wInf, y: 0 },
+        { x: wInf, y: dQ },
+        { x: wSup, y: dQ },
+        { x: wSup, y: lIzq },
+        { x: 0, y: lIzq }
+      ];
+    } else { // 'sup_izq'
+      const cutoutW = wSup - wInf;
+      return [
+        { x: cutoutW, y: 0 },
+        { x: wSup, y: 0 },
+        { x: wSup, y: lIzq },
+        { x: 0, y: lIzq },
+        { x: 0, y: dQ },
+        { x: cutoutW, y: dQ }
+      ];
+    }
+  }
   
   // Default rectangular
   return [
