@@ -652,7 +652,7 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
                                       </div>
 
                                       {/* Visual cut bar */}
-                                      <div className="h-8 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
+                                      <div className="h-11 w-full rounded bg-slate-950 border border-slate-800 flex overflow-hidden">
                                         {lamina.cortes.map((corte: any) => {
                                           const pct = (corte.largo / proyecto.pvcConfig.largoComercial) * 100;
                                           const espacioIdx = proyecto.espacios.findIndex(e => e.id === corte.espacioId);
@@ -662,10 +662,10 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
                                             <div
                                               key={corte.id}
                                               style={{ width: `${pct}%` }}
-                                              className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[9px] font-bold px-0.5 ${colorClass}`}
+                                              className={`h-full border-r border-slate-950/20 flex flex-col items-center justify-center text-[10px] font-bold px-0.5 ${colorClass}`}
                                             >
-                                              <span className="truncate w-full text-center">{corte.largo}m</span>
-                                              <span className="text-[7px] opacity-75 truncate w-full text-center">{corte.espacioNombre}</span>
+                                              <span className="truncate w-full text-center leading-tight">{corte.largo.toFixed(2)}m</span>
+                                              <span className="text-[7.5px] opacity-90 truncate w-full text-center leading-tight mt-0.5">{corte.espacioNombre}</span>
                                             </div>
                                           );
                                         })}
@@ -673,11 +673,14 @@ export const ProjectHistoryModal: React.FC<ProjectHistoryModalProps> = ({
                                         {totalSobrante > 0 && (
                                           <div
                                             style={{ width: `${(totalSobrante / proyecto.pvcConfig.largoComercial) * 100}%` }}
-                                            className={`h-full flex flex-col items-center justify-center text-[9px] font-semibold ${
+                                            className={`h-full flex flex-col items-center justify-center text-[10px] font-semibold ${
                                               totalSobrante > 0.05 ? 'bg-amber-600/30 text-amber-255' : 'bg-rose-950/30 text-rose-455/80'
                                             }`}
                                           >
-                                            <span>{totalSobrante}m</span>
+                                            <span className="leading-tight">{totalSobrante.toFixed(2)}m</span>
+                                            <span className="text-[7.5px] opacity-80 leading-tight mt-0.5">
+                                              {totalSobrante > 0.05 ? 'Retal' : 'Desp.'}
+                                            </span>
                                           </div>
                                         )}
                                       </div>
